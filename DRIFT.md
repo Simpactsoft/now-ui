@@ -45,8 +45,12 @@ whose behaviour changes when the field lands.
 
 | | consumes `@nowui/kit`? |
 |---|---|
-| NOW | ✅ since 2026-07-27, on `feat/nowui-kit` (not yet merged) |
+| NOW | ✅ since 2026-07-27 — merged to `main`, live on `dev.nowview.io`. Not on `release`/production. |
 | SKYZ | ❌ still its own copy — owned by a parallel session |
+
+Vercel builds it fine: the tag archive URL installs remotely with no auth, no
+SSH and no build configuration (`added 23 packages ... in 2s`), and the full
+Next build completed in 1m.
 
 NOW's local copies are gone. `components/microgrid/index.ts`,
 `entity-view/DraggablePanels.tsx` and `entity-view/grid-column-shapes.ts` are
