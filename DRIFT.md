@@ -41,20 +41,20 @@ That is the good case. It means the merge is a port, not a reconciliation:
 there is no competing implementation in NOW to argue with, and no NOW consumer
 whose behaviour changes when the field lands.
 
-## The blocker
+## Status
 
-**Neither app consumes the package yet.** It has no git remote, and a `file:`
-path cannot work — Vercel builds remotely from the git repo and the local path
-does not exist on the build machine.
+| | consumes `@nowui/kit`? |
+|---|---|
+| NOW | ✅ since 2026-07-27, on `feat/nowui-kit` (not yet merged) |
+| SKYZ | ❌ still its own copy — owned by a parallel session |
 
-Until the repo is published and NOW is wired to it, `@nowui/kit` is a *third*
-copy of both components, and it will drift from NOW exactly the way SKYZ did.
-Publishing is the highest-value next action, not more extraction.
+NOW's local copies are gone. `components/microgrid/index.ts`,
+`entity-view/DraggablePanels.tsx` and `entity-view/grid-column-shapes.ts` are
+now one-line re-exports, so all ~40 consuming modules stayed untouched — the
+whole wiring is 3 shims + 1 provider + 2 config lines.
 
-Wiring NOW is deliberately cheap: keep `components/microgrid/index.ts` and
-`entity-view/DraggablePanels.tsx` as one-line shims re-exporting from the
-package, and all 40 consuming files stay untouched. Eight files also import
-`entity-view/grid-column-shapes` directly, so that needs a shim too.
+**SKYZ is now the only fork.** Every hour it stays that way, the 83-line
+pinned-columns delta grows.
 
 ## Consolidation plan
 

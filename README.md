@@ -19,11 +19,11 @@ Publishing and wiring NOW is the next step; see [DRIFT.md](DRIFT.md).
 
 ## Installing
 
-Pin a tag per app. NOW can move fast on `main` while SKYZ stays on an older tag
-until someone deliberately bumps it — that pinning is the whole point.
+Pin a tag per app. NOW can move fast while SKYZ stays on an older tag until
+someone deliberately bumps it — that pinning is the whole point.
 
 ```json
-"@nowui/kit": "github:Simpactsoft/now-ui#v0.1.0"
+"@nowui/kit": "https://github.com/Simpactsoft/now-ui/archive/refs/tags/v0.1.2.tar.gz"
 ```
 
 Then, in `next.config.ts`:
@@ -32,9 +32,36 @@ Then, in `next.config.ts`:
 transpilePackages: ["@nowui/kit"]
 ```
 
-Do **not** install with a `file:` path. Vercel builds remotely from the git
-repo, the local path does not exist on the build machine, and the build fails
-(or worse, silently resolves something stale).
+**Use the archive URL, not the `github:` shorthand.** npm rewrites `github:` to
+`ssh://git@github.com/…`, which needs an SSH key that neither a fresh dev
+machine nor a Vercel build agent has. The tarball URL is plain HTTPS on a public
+repo: no git, no SSH, no token, and it behaves identically locally and in CI.
+
+Do **not** install with a `file:` path either. Vercel builds remotely from the
+git repo, the local path does not exist on the build machine, and the build
+fails — or worse, silently resolves something stale.
+
+### Peer dependencies — do not "fix" these into regular deps
+
+React, Radix, dnd-kit and lucide-react are **peer** dependencies on purpose.
+Anything that carries React context must resolve to a **single copy shared with
+the host**, and npm will happily nest a second one if these are listed as
+regular dependencies.
+
+That is not theoretical: it is exactly what happened wiring NOW. npm installed
+Radix twice (host `react-menu` 2.1.16, a nested 2.1.24), and because React
+context is instance-scoped, host-built `DropdownMenuItem` nodes passed into
+`PanelDef.menuItems` could not see the `Menu` context created by the package's
+`DropdownMenu`. The failure reads `MenuItem must be used within Menu` and would
+have broken every panel kebab menu in the app.
+
+If you see that error, or any "must be used within" context error, check first:
+
+```bash
+ls node_modules/@nowui/kit/node_modules
+```
+
+Anything listed there is a duplicate. It should not exist.
 
 ### Tailwind v4
 
