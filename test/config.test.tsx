@@ -13,7 +13,7 @@ const navigableColumns: MicroColumn<Row>[] = [
 
 describe("MicroGridConfigProvider · Link injection", () => {
     it("renders a plain <a> when no provider wraps the grid", () => {
-        render(<MicroGrid rows={rows} columns={navigableColumns} getRowId={(r) => r.id} />);
+        render(<MicroGrid rows={rows} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r) => r.id} />);
         const link = screen.getByRole("link", { name: "צחי" });
         expect(link.tagName).toBe("A");
         expect(link).toHaveAttribute("href", "/people/r1");
@@ -28,7 +28,7 @@ describe("MicroGridConfigProvider · Link injection", () => {
 
         render(
             <MicroGridConfigProvider value={{ Link: HostLink }}>
-                <MicroGrid rows={rows} columns={navigableColumns} getRowId={(r) => r.id} />
+                <MicroGrid rows={rows} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r) => r.id} />
             </MicroGridConfigProvider>,
         );
 
@@ -49,7 +49,7 @@ describe("MicroGridConfigProvider · Link injection", () => {
 
         render(
             <MicroGridConfigProvider value={{ Link: RefLink }}>
-                <MicroGrid rows={rows} columns={navigableColumns} getRowId={(r) => r.id} />
+                <MicroGrid rows={rows} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r) => r.id} />
             </MicroGridConfigProvider>,
         );
         expect(screen.getByRole("link", { name: "צחי" })).toHaveAttribute("href", "/people/r1");
@@ -58,14 +58,14 @@ describe("MicroGridConfigProvider · Link injection", () => {
 
 describe("MicroGridConfigProvider · labels", () => {
     it("falls back to the Hebrew empty-state label", () => {
-        render(<MicroGrid rows={[]} columns={navigableColumns} getRowId={(r: Row) => r.id} />);
+        render(<MicroGrid rows={[]} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r: Row) => r.id} />);
         expect(screen.getByText(microGridLabels.he.empty)).toBeInTheDocument();
     });
 
     it("honours a partial label override without losing the other defaults", () => {
         render(
             <MicroGridConfigProvider value={{ labels: { empty: "אין נתונים" } as never }}>
-                <MicroGrid rows={[]} columns={navigableColumns} getRowId={(r: Row) => r.id} />
+                <MicroGrid rows={[]} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r: Row) => r.id} />
             </MicroGridConfigProvider>,
         );
         expect(screen.getByText("אין נתונים")).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("MicroGridConfigProvider · labels", () => {
     it("exposes an English label set for LTR hosts", () => {
         render(
             <MicroGridConfigProvider value={{ labels: microGridLabels.en }}>
-                <MicroGrid rows={[]} columns={navigableColumns} getRowId={(r: Row) => r.id} />
+                <MicroGrid rows={[]} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r: Row) => r.id} />
             </MicroGridConfigProvider>,
         );
         expect(screen.getByText(microGridLabels.en.empty)).toBeInTheDocument();
@@ -90,7 +90,7 @@ describe("MicroGridConfigProvider · density event", () => {
 
         render(
             <MicroGridConfigProvider value={{ densityEventName: "skyz:density" }}>
-                <MicroGrid rows={rows} columns={navigableColumns} getRowId={(r) => r.id} />
+                <MicroGrid rows={rows} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r) => r.id} />
             </MicroGridConfigProvider>,
         );
 
@@ -114,7 +114,7 @@ describe("MicroGridConfigProvider · density event", () => {
 
     it("listens to the default event name when the host does not rename it", () => {
         document.documentElement.dataset.density = "cozy";
-        render(<MicroGrid rows={rows} columns={navigableColumns} getRowId={(r) => r.id} />);
+        render(<MicroGrid rows={rows} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r) => r.id} />);
 
         expect(cellPadding()).toContain("px-3");
 

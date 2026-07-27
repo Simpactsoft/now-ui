@@ -50,19 +50,37 @@ labels or event name wraps the tree once.
 
 ### Next.js host
 
+`densityEventName` has **no portable default worth trusting** — each app names
+its own event. NOW's is `now:appearance-density-change`
+(`lib/appearance/config.ts`); the package default is a neutral
+`appearance:density-change` and will silently never fire if you forget to
+override it. Import the host's own constant rather than retyping the string.
+
 ```tsx
 "use client";
+import { useMemo } from "react";
 import NextLink from "next/link";
 import { MicroGridConfigProvider, microGridLabels } from "@nowui/kit/grid";
+import { APPEARANCE_DENSITY_EVENT } from "@/lib/appearance/config";
+import { useLanguage } from "@/context/LanguageContext";
 
-export function GridConfig({ lang, children }: { lang: "he" | "en"; children: React.ReactNode }) {
+export function GridConfig({ children }: { children: React.ReactNode }) {
+    const { language } = useLanguage();
     const value = useMemo(
-        () => ({ Link: NextLink, labels: microGridLabels[lang], densityEventName: "appearance:density-change" }),
-        [lang],
+        () => ({
+            Link: NextLink,
+            labels: microGridLabels[language],
+            densityEventName: APPEARANCE_DENSITY_EVENT,
+        }),
+        [language],
     );
     return <MicroGridConfigProvider value={value}>{children}</MicroGridConfigProvider>;
 }
 ```
+
+Taking `language` from the app's own context — rather than sniffing
+`document.documentElement.lang` the way NOW's inlined copy did — is what makes
+the server and client agree. See "one behavioural change" below.
 
 Pass `value` a **stable** object. The provider memoises on its three fields, so
 an inline literal is tolerated, but a fresh `labels` object every render will
