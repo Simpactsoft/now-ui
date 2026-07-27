@@ -35,20 +35,20 @@ export interface PanelsConfig {
 
 const HE_LABELS: PanelLabels = {
     addPanel: "הוסף פאנל",
-    collapsePanel: "כווץ",
-    expandPanel: "הרחב",
-    splitPanel: "פצל",
+    collapsePanel: "כווץ פאנל",
+    expandPanel: "הרחב פאנל",
+    splitPanel: "פצל פאנל",
     splitAll: "פצל הכל",
-    mergeWith: "מזג עם",
+    mergeWith: "אחד עם…",
 };
 
 const EN_LABELS: PanelLabels = {
     addPanel: "Add panel",
-    collapsePanel: "Collapse",
-    expandPanel: "Expand",
-    splitPanel: "Split",
+    collapsePanel: "Collapse panel",
+    expandPanel: "Expand panel",
+    splitPanel: "Split panel",
     splitAll: "Split all",
-    mergeWith: "Merge with",
+    mergeWith: "Merge with…",
 };
 
 export const panelLabels = { he: HE_LABELS, en: EN_LABELS } as const;
