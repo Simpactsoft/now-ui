@@ -14,7 +14,7 @@ export type {
     ResolvedResponsiveField,
 } from "./responsiveGroups";
 export { resolveResponsiveColumns } from "./responsiveGroups";
-export { bucketRows } from "./bucketRows";
+export { bucketRows, NULL_GROUP_KEY, NULL_GROUP_LABEL } from "./bucketRows";
 export type {
     MicroColumn,
     MicroEditConfig,
