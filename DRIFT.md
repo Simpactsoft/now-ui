@@ -41,6 +41,21 @@ That is the good case. It means the merge is a port, not a reconciliation:
 there is no competing implementation in NOW to argue with, and no NOW consumer
 whose behaviour changes when the field lands.
 
+## The blocker
+
+**Neither app consumes the package yet.** It has no git remote, and a `file:`
+path cannot work — Vercel builds remotely from the git repo and the local path
+does not exist on the build machine.
+
+Until the repo is published and NOW is wired to it, `@nowui/kit` is a *third*
+copy of both components, and it will drift from NOW exactly the way SKYZ did.
+Publishing is the highest-value next action, not more extraction.
+
+Wiring NOW is deliberately cheap: keep `components/microgrid/index.ts` and
+`entity-view/DraggablePanels.tsx` as one-line shims re-exporting from the
+package, and all 40 consuming files stay untouched. Eight files also import
+`entity-view/grid-column-shapes` directly, so that needs a shim too.
+
 ## Consolidation plan
 
 Coordinate with the סקיי 2 session before starting — steps 1 and 2 touch files

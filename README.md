@@ -8,7 +8,12 @@ build pipeline here, no dist to keep in sync, and source maps just work.
 | Export | Contents | Status |
 |---|---|---|
 | `@nowui/kit/grid` | MicroGrid + column adapter + responsive groups | extracted 2026-07-27 |
-| `@nowui/kit/panels` | draggable panel layout engine | not yet extracted |
+| `@nowui/kit/panels` | draggable panel layout engine + persistence contract | extracted 2026-07-27 |
+| `@nowui/kit/file-viewer` | format renderers + viewer shell | see [FILE-VIEWER.md](FILE-VIEWER.md) |
+
+**Neither app consumes this package yet** — it has no git remote, so nothing can
+install it. Until that happens these are third copies, and they will drift.
+Publishing and wiring NOW is the next step; see [DRIFT.md](DRIFT.md).
 
 ---
 
@@ -98,6 +103,42 @@ re-subscribe the density listener.
 safe.
 
 ---
+
+---
+
+## Wiring the panels into a host app
+
+The host supplies the whole layout-persistence hook. NOW passes its existing
+`usePanelLayoutDB` unchanged — the contract in `panels/persistence.ts` was lifted
+from that hook's signature on purpose.
+
+```tsx
+"use client";
+import { useMemo } from "react";
+import { PanelsConfigProvider, panelLabels } from "@nowui/kit/panels";
+import { usePanelLayoutDB } from "@/hooks/usePanelLayoutDB";
+import { useLanguage } from "@/context/LanguageContext";
+
+export function PanelsConfig({ children }: { children: React.ReactNode }) {
+    const { language } = useLanguage();
+    const value = useMemo(
+        () => ({ usePanelLayout: usePanelLayoutDB, labels: panelLabels[language] }),
+        [language],
+    );
+    return <PanelsConfigProvider value={value}>{children}</PanelsConfigProvider>;
+}
+```
+
+⚠️ **Two rules, both load-bearing:**
+
+1. `usePanelLayout` must have a **stable identity**. It is called like any other
+   hook inside the grid, so swapping it between renders changes hook order.
+2. What it **returns** must be referentially stable too — `dbLayout` and the
+   callbacks land in effect dependency arrays. A fresh object every render
+   causes an infinite render loop, and the symptom is a **hang, not an error**.
+
+With no provider the panels use `ephemeralPanelLayout`: everything works,
+arrangements just do not survive a reload.
 
 ## What is deliberately NOT here
 
