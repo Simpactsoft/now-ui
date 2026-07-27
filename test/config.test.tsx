@@ -64,7 +64,7 @@ describe("MicroGridConfigProvider · labels", () => {
 
     it("honours a partial label override without losing the other defaults", () => {
         render(
-            <MicroGridConfigProvider value={{ labels: { empty: "אין נתונים" } as never }}>
+            <MicroGridConfigProvider value={{ labels: { empty: "אין נתונים" } }}>
                 <MicroGrid rows={[]} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r: Row) => r.id} />
             </MicroGridConfigProvider>,
         );

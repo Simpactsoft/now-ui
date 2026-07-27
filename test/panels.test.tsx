@@ -140,7 +140,7 @@ describe("DraggablePanels · labels seam", () => {
         // Override a key that is NOT rendered in the default (expanded) state, so
         // the assertion below proves the untouched key survived the merge.
         render(
-            <PanelsConfigProvider value={{ labels: { expandPanel: "פתח" } as never }}>
+            <PanelsConfigProvider value={{ labels: { expandPanel: "פתח" } }}>
                 <DraggablePanels panels={panels} storageKey="k-partial" />
             </PanelsConfigProvider>,
         );

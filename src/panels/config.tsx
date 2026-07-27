@@ -60,12 +60,21 @@ export const DEFAULT_PANELS_CONFIG: PanelsConfig = {
 
 const PanelsConfigContext = createContext<PanelsConfig>(DEFAULT_PANELS_CONFIG);
 
+/**
+ * What a host may pass. `labels` is itself partial — the provider merges labels
+ * field-by-field, so overriding one string must not force the host to restate
+ * the rest.
+ */
+export type PanelsConfigInput = Partial<Omit<PanelsConfig, "labels">> & {
+    labels?: Partial<PanelLabels>;
+};
+
 export function PanelsConfigProvider({
     value,
     children,
 }: {
     /** Partial — anything omitted falls back to the default. */
-    value: Partial<PanelsConfig>;
+    value: PanelsConfigInput;
     children: ReactNode;
 }) {
     const merged = useMemo<PanelsConfig>(

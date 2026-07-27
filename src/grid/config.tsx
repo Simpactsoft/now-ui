@@ -77,12 +77,22 @@ export const DEFAULT_MICROGRID_CONFIG: MicroGridConfig = {
 
 const MicroGridConfigContext = createContext<MicroGridConfig>(DEFAULT_MICROGRID_CONFIG);
 
+/**
+ * What a host may pass. Note `labels` is itself partial: the provider merges
+ * labels field-by-field, so overriding one string must not force the host to
+ * restate the rest. `Partial<MicroGridConfig>` alone would require a complete
+ * labels object and reject the documented partial-override usage.
+ */
+export type MicroGridConfigInput = Partial<Omit<MicroGridConfig, "labels">> & {
+    labels?: Partial<MicroGridLabels>;
+};
+
 export function MicroGridConfigProvider({
     value,
     children,
 }: {
     /** Partial — anything omitted falls back to the default. */
-    value: Partial<MicroGridConfig>;
+    value: MicroGridConfigInput;
     children: ReactNode;
 }) {
     const merged = useMemo<MicroGridConfig>(

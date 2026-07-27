@@ -11,9 +11,10 @@ build pipeline here, no dist to keep in sync, and source maps just work.
 | `@nowui/kit/panels` | draggable panel layout engine + persistence contract | extracted 2026-07-27 |
 | `@nowui/kit/file-viewer` | format renderers + viewer shell | see [FILE-VIEWER.md](FILE-VIEWER.md) |
 
-**Neither app consumes this package yet** — it has no git remote, so nothing can
-install it. Until that happens these are third copies, and they will drift.
-Publishing and wiring NOW is the next step; see [DRIFT.md](DRIFT.md).
+**NOW consumes this package** as of 2026-07-27 — merged to `main` and live on
+`dev.nowview.io`, not yet on production (`release`). **SKYZ is still on its own
+copy** and is now the only fork; see [DRIFT.md](DRIFT.md) for exactly what it has
+that this does not.
 
 ---
 
@@ -23,7 +24,7 @@ Pin a tag per app. NOW can move fast while SKYZ stays on an older tag until
 someone deliberately bumps it — that pinning is the whole point.
 
 ```json
-"@nowui/kit": "https://github.com/Simpactsoft/now-ui/archive/refs/tags/v0.1.2.tar.gz"
+"@nowui/kit": "https://github.com/Simpactsoft/now-ui/archive/refs/tags/v0.1.3.tar.gz"
 ```
 
 Then, in `next.config.ts`:
@@ -182,16 +183,30 @@ flows. The generic part is the panel layout engine, and that ships separately as
 
 ## Extraction notes (2026-07-27)
 
-Extracted from `now/next-web/src/components/microgrid`. The diff against the
-source is exactly four seams and nothing else — no logic was touched:
+Extracted from `now/next-web/src/components/microgrid`. No grid algorithm was
+rewritten; the diff against the source is these seams:
 
 1. `next/link` → `config.Link`
 2. `@/lib/utils` → local `cn`
 3. `@/lib/translations` → `config.labels`
 4. `@/lib/appearance/config` → `config.densityEventName`
+5. `@/components/entity-view/grid-column-shapes` → `./column-shapes` (in
+   `columnAdapter.tsx`) — the file moved in wholesale, and NOW already
+   documented it as belonging to the adapter
 
-`entity-view/grid-column-shapes.ts` moved in wholesale as `column-shapes.ts` —
-it was already documented in NOW as belonging to the adapter.
+**Two of those seams change behaviour, and both changes are deliberate.** An
+earlier draft of this file claimed "no logic was touched" while also describing
+a behavioural change two sections down; that contradiction was wrong, and this
+is the corrected accounting:
+
+- **Language selection** — described below. A hydration fix.
+- **The empty-state string** — the original was the hardcoded Hebrew literal
+  `אין שורות להצגה` regardless of language. It is now `config.labels.empty`, so
+  an English host renders English. NOW supplies the key `noRowsToDisplay` in
+  both languages; Hebrew output is byte-identical to before, English is not.
+
+Everything else — `types.ts`, `bucketRows.ts`, `responsiveGroups.ts`,
+`useIsMobile.ts`, `column-shapes.ts` — is byte-identical to the NOW original.
 
 ### One behavioural change, and it is a fix
 

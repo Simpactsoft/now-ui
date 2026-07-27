@@ -21,6 +21,7 @@ export {
     panelLabels,
     DEFAULT_PANELS_CONFIG,
     type PanelsConfig,
+    type PanelsConfigInput,
     type PanelLabels,
 } from "./config";
 

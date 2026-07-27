@@ -35,6 +35,7 @@ export {
     microGridLabels,
     DEFAULT_MICROGRID_CONFIG,
     type MicroGridConfig,
+    type MicroGridConfigInput,
     type MicroGridLabels,
     type MicroGridLinkComponent,
     type MicroGridLinkProps,
