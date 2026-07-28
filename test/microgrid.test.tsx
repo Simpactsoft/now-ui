@@ -1059,3 +1059,223 @@ describe("MicroGrid · navigable name link", () => {
         expect(onRowClick).not.toHaveBeenCalled();
     });
 });
+
+// ─── The design handoff: GRID_AND_FILTERS §3, §4, §10 ──────────────────
+// These lock the parts of the grid look that were bugs before they were rules — every one of them
+// is listed in the handoff's "do not reintroduce" section.
+
+interface SparseRow {
+    id: string;
+    name: string;
+    city: string | null;
+    junk?: boolean;
+}
+
+const SPARSE_ROWS: SparseRow[] = [
+    { id: "a", name: "Alice", city: "חיפה" },
+    { id: "b", name: "noreply@mailer.example", city: null, junk: true },
+];
+
+const PINNED_COLS: MicroColumn<SparseRow>[] = [
+    { id: "name", header: "שם", accessor: "name", width: 248, pinned: "start" },
+    { id: "city", header: "עיר", accessor: "city", width: 112 },
+];
+
+const cellsOf = (row: HTMLElement) => within(row).getAllByRole("cell");
+
+describe("MicroGrid · handoff design", () => {
+    it("§3 renders an em-dash for an empty value instead of an empty cell", () => {
+        render(
+            <MicroGrid rows={SPARSE_ROWS} columns={PINNED_COLS} getRowId={(r) => r.id} ariaLabel="t" />,
+        );
+        const [, junkRow] = screen.getAllByTestId("grid-row");
+        expect(within(junkRow).getByText("—")).toBeInTheDocument();
+    });
+
+    it("§3 honours noEmptyDash for columns whose blank state is meaningful", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={[PINNED_COLS[0], { ...PINNED_COLS[1], noEmptyDash: true }]}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+            />,
+        );
+        expect(screen.queryByText("—")).not.toBeInTheDocument();
+    });
+
+    it("§3 paints a toned row from --mg-row-bg so the frozen cells follow it", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                getRowTone={(r) => (r.junk ? "muted" : undefined)}
+            />,
+        );
+        const [plain, junk] = screen.getAllByTestId("grid-row");
+        expect(junk).toHaveAttribute("data-row-tone", "muted");
+        expect(plain).not.toHaveAttribute("data-row-tone");
+        expect(junk.style.getPropertyValue("--mg-row-bg")).toContain("--surface-2");
+        expect(plain.style.getPropertyValue("--mg-row-bg")).toBe("var(--card)");
+    });
+
+    it("§4b selection and the active marker outrank the tone, and both stay opaque", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                selection="multi"
+                selectedIds={["b"]}
+                activeRowId="a"
+                getRowTone={() => "muted"}
+            />,
+        );
+        const [active, selected] = screen.getAllByTestId("grid-row");
+        // Mixed against --card, never against transparent: a translucent row lets horizontally
+        // scrolled content show through the frozen columns.
+        expect(active.style.getPropertyValue("--mg-row-bg")).toContain("var(--card)");
+        expect(selected.style.getPropertyValue("--mg-row-bg")).toContain("var(--card)");
+        expect(active.style.getPropertyValue("--mg-row-bg")).toContain("16%");
+        expect(selected.style.getPropertyValue("--mg-row-bg")).toContain("10%");
+    });
+
+    it("§4b frozen body cells paint from the row's --mg-row-bg, not their own colour", () => {
+        render(
+            <MicroGrid rows={SPARSE_ROWS} columns={PINNED_COLS} getRowId={(r) => r.id} ariaLabel="t" />,
+        );
+        const pinned = cellsOf(screen.getAllByTestId("grid-row")[0])[0];
+        expect(pinned.style.position).toBe("sticky");
+        expect(pinned.style.background).toContain("--mg-row-bg");
+        // …with the hover tint taking precedence over it, in the same declaration.
+        expect(pinned.style.background).toContain("--mg-row-tint");
+    });
+
+    it("§4b hover writes a property the inline row style does not, or it could never win", () => {
+        // An inline declaration outranks any non-!important stylesheet rule. If hover and the row's
+        // base background were the same custom property, the `:hover` rule would be dead on arrival
+        // and row hover would silently stop working. Keep them separate.
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                onRowClick={() => {}}
+            />,
+        );
+        const row = screen.getAllByTestId("grid-row")[0];
+        expect(row.className).toContain("hover:[--mg-row-tint:");
+        expect(row.style.getPropertyValue("--mg-row-tint")).toBe("");
+        expect(row.style.getPropertyValue("--mg-row-bg")).not.toBe("");
+    });
+
+    it("§4a the selection column freezes together with the pinned group", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                selection="multi"
+            />,
+        );
+        const [checkbox, name] = cellsOf(screen.getAllByTestId("grid-row")[0]);
+        expect(checkbox.style.position).toBe("sticky");
+        expect(checkbox.style.insetInlineStart).toBe("0");
+        expect(name.style.position).toBe("sticky");
+        expect(name.style.insetInlineStart).toBe("40px");
+    });
+
+    it("§4a an unpinned grid leaves the selection column static", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS.map(({ pinned: _pinned, ...c }) => c)}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                selection="multi"
+            />,
+        );
+        expect(cellsOf(screen.getAllByTestId("grid-row")[0])[0].style.position).toBe("");
+    });
+
+    it("§4c the frozen header corner sits above the frozen body cells", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                selection="multi"
+            />,
+        );
+        const headerPin = screen.getAllByRole("columnheader")[1];
+        const bodyPin = cellsOf(screen.getAllByTestId("grid-row")[0])[1];
+        expect(Number(headerPin.style.zIndex)).toBeGreaterThan(Number(bodyPin.style.zIndex));
+    });
+
+    it("§4b the active-row ring is inherited by every cell, frozen ones included", () => {
+        // A box-shadow on the <tr> is painted under the frozen cells and gets sliced off at the
+        // frozen boundary — the marked row looks broken exactly when the user scrolls sideways.
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                selection="multi"
+                activeRowId="a"
+            />,
+        );
+        const [active, plain] = screen.getAllByTestId("grid-row");
+        expect(active.style.getPropertyValue("--mg-row-ring")).toContain("var(--primary)");
+        expect(plain.style.getPropertyValue("--mg-row-ring")).toBe("");
+        for (const cell of cellsOf(active)) {
+            expect(cell.style.boxShadow).toContain("--mg-row-ring");
+        }
+    });
+
+    it("§1 the header is a sunken band at 700, with no case transform", () => {
+        render(
+            <MicroGrid rows={SPARSE_ROWS} columns={PINNED_COLS} getRowId={(r) => r.id} ariaLabel="t" />,
+        );
+        const header = screen.getAllByRole("columnheader")[0];
+        expect(header.style.background).toContain("--surface-sunken");
+        expect(header.style.fontSize).toContain("--fs-sm");
+        expect(header.className).toContain("font-bold");
+        expect(header.className).toContain("normal-case");
+        expect(header.className).not.toContain("uppercase");
+    });
+
+    it("§3 row height follows the host's --rowh token", () => {
+        render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                density="compact"
+            />,
+        );
+        expect(screen.getAllByTestId("grid-row")[0].style.height).toBe("var(--rowh, 30px)");
+    });
+
+    it("§11 skeleton rows keep the frozen columns sticky so the layout does not jump", () => {
+        const { container } = render(
+            <MicroGrid
+                rows={SPARSE_ROWS}
+                columns={PINNED_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                selection="multi"
+                loading
+            />,
+        );
+        const firstSkeletonCell = container.querySelector("tbody tr td") as HTMLElement;
+        expect(firstSkeletonCell.style.position).toBe("sticky");
+    });
+});

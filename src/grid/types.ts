@@ -52,6 +52,17 @@ export interface MicroSortState {
 
 export type MicroSelectionMode = "none" | "single" | "multi";
 
+/**
+ * A row-level background tone, for rows the user should read as different from ordinary records
+ * before reading a single cell (GRID_AND_FILTERS §3).
+ *
+ * `muted` is the junk-row case the handoff is written around: machine-created cards named after an
+ * email address or URL, which sort to the top of any A–Z list and would otherwise be the first
+ * thing a user sees. The tone resolves through the row's `--mg-row-bg`, so the frozen columns pick
+ * it up with the rest of the row instead of staying card-white.
+ */
+export type MicroRowTone = "muted" | "warning" | "danger";
+
 export interface MicroColumn<T> {
     id: string;
     header: ReactNode;
@@ -60,8 +71,28 @@ export interface MicroColumn<T> {
     accessor: keyof T | ((row: T) => unknown);
     width?: number | string;
     align?: "start" | "center" | "end";
-    /** Vertical alignment within the row. Default: 'top' (matches design decision 2026-05-24). */
+    /**
+     * Freeze this column to the grid's leading (inline-start; right in RTL) edge so it stays
+     * visible while the rest of the grid scrolls horizontally. Pinned columns must be contiguous
+     * at the leading edge and SHOULD declare a numeric `width` so the cumulative sticky offset can
+     * be computed. Honored only by the desktop table layout (mobile/card layouts ignore it).
+     *
+     * The selection column freezes with them — a static checkbox beside a sticky name cell scrolls
+     * out of the viewport entirely at laptop width, taking the selection flow with it
+     * (GRID_AND_FILTERS §4a).
+     */
+    pinned?: "start";
+    /**
+     * Vertical alignment within the row. Default: 'middle' — rows are fixed-height and
+     * vertically centred (GRID_AND_FILTERS §3). Set 'top' for cells that wrap to several lines.
+     */
     verticalAlign?: "top" | "middle";
+    /**
+     * Suppress the em-dash placeholder for an empty value in this column (GRID_AND_FILTERS §3).
+     * Set it on columns whose blank state is meaningful on its own — icon columns, action columns,
+     * a checkbox rendered through `cell`.
+     */
+    noEmptyDash?: boolean;
     /**
      * Hint for responsive grouping: marks a column as a candidate to drive the
      * composite group label. Does not affect header interactivity; sorting is
@@ -172,6 +203,12 @@ export interface MicroGridProps<T> {
     // ── Row actions & interactions ────────────────────────────────────────
     rowActions?: MicroRowAction<T>[];
     onRowClick?: (row: T) => void;
+    /**
+     * Per-row background tone (GRID_AND_FILTERS §3). Return undefined for the ordinary case.
+     * Selection and the split-preview active marker outrank the tone; hover leaves it alone, so a
+     * junk row still reads as junk while the pointer is over it.
+     */
+    getRowTone?: (row: T) => MicroRowTone | undefined;
     /**
      * When true, a plain left-click on a navigable cell (one with `navigateTo`)
      * fires `onRowClick(row)` instead of following the link. Used by split-preview

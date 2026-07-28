@@ -9,7 +9,7 @@
 // Does NOT own: data fetching, server filtering, pagination UI, saved views.
 // Those live outside the grid (see docs/microgrid-design.md §1).
 
-import { Fragment, useCallback, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight, Inbox, MoreHorizontal, Pencil } from "lucide-react";
 import { cn } from "./utils";
 import { useMicroGridConfig } from "./config";
@@ -19,6 +19,7 @@ import type {
     MicroGridDensity,
     MicroGridProps,
     MicroRowAction,
+    MicroRowTone,
 } from "./types";
 import {
     resolveResponsiveColumns,
@@ -29,13 +30,71 @@ import {
 import { CellEditor } from "./internals/CellEditor";
 import { useIsBelow } from "./internals/useIsMobile";
 
+// ─── Design tokens ────────────────────────────────────────────────────────
+// The grid's look is the Skyz design handoff (GRID_AND_FILTERS §1–§4, §10–§11), applied here in
+// the component rather than in any host stylesheet — the package ships no CSS, so this is what
+// makes the design travel to every consumer instead of being re-skinned per app.
+//
+// Each value reads a host design token and falls back to something derived from the base palette.
+// A host that has adopted the Skyz token set (--surface-sunken, --fs-sm, --surface-2) gets the
+// handoff's exact colours and density scale; a host that has not still gets its structure — sunken
+// header, hairline rules, centred fixed-height rows — in its own palette.
+
+/** Header band. Sunken, not the row surface: the header is chrome, not data. */
+const HEAD_BG = "var(--surface-sunken, color-mix(in oklab, var(--muted) 55%, var(--card)))";
+/** Header type: --fs-sm at 700, no case transform and no letter-spacing (§1). */
+const HEAD_FS = "var(--fs-sm, 12px)";
+/** Body type. Density-driven where the host defines the scale. */
+const BODY_FS = "var(--fs-sm, 13px)";
+/** Ordinary row surface. Must be opaque (§4b) — a transparent row loses the frozen columns. */
+const ROW_BG_BASE = "var(--card)";
+// Hover is `color-mix(in oklab, var(--muted) 45%, var(--card))`, but it lives inline in the row's
+// class string (see rowClass) rather than here: Tailwind's scanner reads source text, so an
+// arbitrary value assembled from a constant would never make it into the stylesheet.
+/** Checkbox-selected row. */
+const ROW_BG_SELECTED = "color-mix(in srgb, var(--primary) 10%, var(--card))";
+/** The row currently open in a split-preview panel — distinct from selection. */
+const ROW_BG_ACTIVE = "color-mix(in srgb, var(--primary) 16%, var(--card))";
+
+const ROW_TONE_BG: Record<MicroRowTone, string> = {
+    muted: "var(--surface-2, color-mix(in oklab, var(--muted) 35%, var(--card)))",
+    warning: "var(--warning-soft, color-mix(in oklab, var(--warning) 14%, var(--card)))",
+    danger: "color-mix(in oklab, var(--destructive) 12%, var(--card))",
+};
+
+/**
+ * The scroll track, when there is one. A grid lives inside a panel, so the browser's default 15px
+ * chrome is a slab of grey across the bottom of the card. Thin, token-tinted, and it darkens on
+ * hover so it is findable without being loud. Written as utilities rather than a stylesheet rule
+ * because this component ships without CSS — see the design-token block above.
+ */
+const SCROLLBAR_CLASS = cn(
+    "[scrollbar-width:thin]",
+    "[scrollbar-color:color-mix(in_oklab,var(--muted-foreground)_30%,transparent)_transparent]",
+    "[&::-webkit-scrollbar]:h-1.5",
+    "[&::-webkit-scrollbar-track]:bg-transparent",
+    "[&::-webkit-scrollbar-thumb]:rounded-full",
+    "[&::-webkit-scrollbar-thumb]:bg-[color-mix(in_oklab,var(--muted-foreground)_30%,transparent)]",
+    "hover:[&::-webkit-scrollbar-thumb]:bg-[color-mix(in_oklab,var(--muted-foreground)_55%,transparent)]",
+);
+
+/** Header row height (§1). Fixed across densities — it is chrome, and it should not grow. */
+const HEAD_HEIGHT = 28;
+
 // ─── Constants ────────────────────────────────────────────────────────────
 
+// Row height per density. These are the handoff's --rowh values (30 / 36 / 42), used as the
+// fallback for the host token so an app that ships the density scale drives it from there.
 const DENSITY_ROW_HEIGHT: Record<MicroGridDensity, number> = {
-    compact: 32,
-    cozy: 40,
-    comfortable: 56,
+    compact: 30,
+    cozy: 36,
+    comfortable: 42,
 };
+
+/** `height: var(--rowh, <density>)` — the host's density token wins where it exists. */
+function rowHeightCss(density: MicroGridDensity): string {
+    return `var(--rowh, ${DENSITY_ROW_HEIGHT[density]}px)`;
+}
 
 const DENSITY_CELL_PADDING_Y: Record<MicroGridDensity, string> = {
     compact: "py-1",
@@ -68,6 +127,23 @@ function titleFromValue(value: unknown): string | undefined {
     return undefined;
 }
 
+/**
+ * GRID_AND_FILTERS §3: never an empty cell. A blank reads as a render bug; `—` reads as "this card
+ * has no city", which is information. Opt a column out with `noEmptyDash` when its blank state is
+ * meaningful on its own (icon and action columns).
+ */
+function isEmptyContent(node: ReactNode): boolean {
+    return node === null || node === undefined || node === "" || node === false;
+}
+
+function EmptyDash() {
+    return (
+        <span aria-hidden className="text-muted-foreground">
+            —
+        </span>
+    );
+}
+
 function navigableDisplayValue(value: unknown): ReactNode {
     if (value === null || value === undefined) return null;
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
@@ -79,6 +155,154 @@ function alignClass(align: MicroColumn<unknown>["align"]): string {
     if (align === "center") return "text-center justify-center";
     if (align === "end") return "text-end justify-end";
     return "text-start justify-start";
+}
+
+// ─── Row background: one inherited custom property ────────────────────────
+// GRID_AND_FILTERS §4b. Frozen cells need an opaque background of their own or scrolling content
+// slides under them — but a per-cell background breaks row hover, because `:hover` matches only
+// the element under the pointer: hovering an unpinned cell highlights the row while the frozen
+// name cell stays card-white, and the row renders two-tone.
+//
+// So there is exactly one source of truth per row: `--mg-row-bg`, set on the <tr>. The row paints
+// from it and so does every frozen cell. Custom properties inherit, so hovering anywhere in the
+// row repaints all of them in step, and skeleton rows get the same treatment for free.
+//
+// Hover is a SECOND property, `--mg-row-tint`, and that split is not cosmetic. `--mg-row-bg` is an
+// inline style, and an inline declaration outranks any stylesheet rule that is not !important — a
+// `:hover { --mg-row-bg: … }` rule would simply never win. So hover sets its own property and
+// everything paints `var(--mg-row-tint, var(--mg-row-bg))`: the tint when one exists, the row's
+// resolved background otherwise.
+const ROW_BG_VAR = "--mg-row-bg";
+/** What a frozen cell paints: the hover tint if there is one, else the row's own background. */
+const ROW_PAINT = `var(--mg-row-tint, var(${ROW_BG_VAR}, ${ROW_BG_BASE}))`;
+
+// The split-preview "active row" marker has the same problem as the background, one layer up: a
+// box-shadow on the <tr> is painted UNDER the frozen cells, which are opaque and positioned, so the
+// ring is sliced off at the frozen boundary and the marked row looks broken exactly when the user
+// scrolls sideways to read it.
+//
+// So the ring is inherited too — `--mg-row-ring`, set on the row and drawn by every cell. Top and
+// bottom edges only: those tile seamlessly across cell boundaries, where a full per-cell ring would
+// draw a vertical rule between every pair of columns.
+const ROW_RING_VAR = "--mg-row-ring";
+const ROW_RING_ACTIVE = "inset 0 1.5px 0 0 var(--primary), inset 0 -1.5px 0 0 var(--primary)";
+/** Body-cell box-shadow: the row's ring when it has one, an invisible shadow when it does not. */
+const CELL_RING = `var(${ROW_RING_VAR}, 0 0 transparent)`;
+
+/** Style for an ordinary (unfrozen) body cell. */
+function bodyCellStyle(extra?: CSSProperties): CSSProperties {
+    return { boxShadow: CELL_RING, ...extra };
+}
+
+/** Resolved row background, highest-priority state first. */
+function rowBackground(state: {
+    active?: boolean;
+    selected?: boolean;
+    tone?: MicroRowTone;
+}): string {
+    if (state.active) return ROW_BG_ACTIVE;
+    if (state.selected) return ROW_BG_SELECTED;
+    if (state.tone) return ROW_TONE_BG[state.tone];
+    return ROW_BG_BASE;
+}
+
+/** <tr> style: fixed density-driven height, the row's own `--mg-row-bg`, and its ring if active. */
+function rowStyle(density: MicroGridDensity, background: string, active = false): CSSProperties {
+    return {
+        height: rowHeightCss(density),
+        [ROW_BG_VAR]: background,
+        ...(active ? { [ROW_RING_VAR]: ROW_RING_ACTIVE } : null),
+    } as CSSProperties;
+}
+
+/**
+ * Row classes. Hover is a custom-property override rather than a `bg-*` utility so it reaches the
+ * frozen cells too — and it is only applied when no higher-priority state owns the row, so hovering
+ * a selected or junk row does not wash its meaning out.
+ */
+function rowClass(interactive: boolean, hoverable: boolean): string {
+    return cn(
+        "group border-b border-border bg-[var(--mg-row-tint,var(--mg-row-bg))] transition-colors",
+        hoverable && "hover:[--mg-row-tint:color-mix(in_oklab,var(--muted)_45%,var(--card))]",
+        interactive && "cursor-pointer",
+    );
+}
+
+/** Header cell: sunken band, --fs-sm at 700, no case transform, fixed 28px (§1). */
+const HEAD_CELL_CLASS =
+    "border-b border-border align-middle font-bold normal-case tracking-normal text-muted-foreground";
+
+function headCellStyle(extra?: CSSProperties): CSSProperties {
+    return {
+        background: HEAD_BG,
+        fontSize: HEAD_FS,
+        height: HEAD_HEIGHT,
+        paddingTop: 0,
+        paddingBottom: 0,
+        ...extra,
+    };
+}
+
+// ─── Pinned (frozen leading) columns ──────────────────────────────────────
+// GRID_AND_FILTERS §4. Freezes contiguous leading columns to the inline-start edge during
+// horizontal scroll. Desktop table layout only; mobile/card layouts ignore it.
+const PIN_SELECTION_WIDTH = 40; // selection column is w-10 (2.5rem)
+// Separating shadow on the trailing edge of the last frozen column. In RTL the scrolling content
+// sits to the physical LEFT of the frozen block ⇒ shadow on the -x side.
+const PIN_EDGE_SHADOW = "-8px 0 8px -8px color-mix(in srgb, var(--foreground) 22%, transparent)";
+
+/**
+ * Sticky style for a pinned column at `index` within the ordered visible columns, or null when the
+ * column is not pinned. The inline-start offset accumulates the selection column (if shown) plus the
+ * declared widths of the pinned columns before it. `isLast` flags the final pinned column so its
+ * cells can carry the divider. RTL-safe via the logical `insetInlineStart`.
+ *
+ * Body cells paint from the row's inherited `--mg-row-bg` (§4b) so the frozen block tracks hover,
+ * selection and row tone with the rest of the row instead of staying card-white. Header cells paint
+ * the header band, and sit above body cells (§4c: z-4 vs z-2) so a vertically-scrolled row passes
+ * under the frozen header corner rather than through it.
+ */
+function pinnedColumnSticky<T>(
+    columns: MicroColumn<T>[],
+    index: number,
+    showSelection: boolean,
+    variant: "header" | "cell",
+): CSSProperties | undefined {
+    const col = columns[index];
+    if (col?.pinned !== "start") return undefined;
+    let offset = showSelection ? PIN_SELECTION_WIDTH : 0;
+    for (let i = 0; i < index; i++) {
+        if (columns[i]?.pinned !== "start") break; // contiguity guard — stop at first non-pinned
+        const w = columns[i]?.width;
+        offset += typeof w === "number" ? w : Number.parseFloat(String(w ?? "")) || 0;
+    }
+    const isLast = columns[index + 1]?.pinned !== "start";
+    return {
+        position: "sticky",
+        insetInlineStart: offset,
+        zIndex: variant === "header" ? 4 : 2,
+        background: variant === "header" ? HEAD_BG : ROW_PAINT,
+        ...(variant === "cell" ? { boxShadow: isLast ? `${CELL_RING}, ${PIN_EDGE_SHADOW}` : CELL_RING } : null),
+        ...(isLast ? { borderInlineEnd: "1px solid var(--border)" } : null),
+        ...(variant === "header" && isLast ? { boxShadow: PIN_EDGE_SHADOW } : null),
+    };
+}
+
+/**
+ * Sticky style for the selection column when any data column is pinned (it freezes at offset 0).
+ * §4a: both cells of the pinned group must be sticky, or neither. A static checkbox beside a sticky
+ * name cell does not merely stay put — the sticky sibling slides *over* it, and at laptop width the
+ * checkbox leaves the viewport entirely, taking the selection → merge flow with it.
+ */
+function selectionColumnSticky(hasPinned: boolean, variant: "header" | "cell"): CSSProperties | undefined {
+    if (!hasPinned) return undefined;
+    return {
+        position: "sticky",
+        insetInlineStart: 0,
+        zIndex: variant === "header" ? 4 : 2,
+        background: variant === "header" ? HEAD_BG : ROW_PAINT,
+        ...(variant === "cell" ? { boxShadow: CELL_RING } : null),
+    };
 }
 
 function EditPencilButton({ onClick, className }: { onClick: () => void; className?: string }) {
@@ -127,11 +351,13 @@ function SelectionBox({
                 e.stopPropagation();
                 onToggle(e);
             }}
+            // §10: 15px box, 4px radius, 1.5px rule in --input. Sized against the 30px row rather
+            // than the 4px grid — at h-4 it crowds a compact row.
             className={cn(
-                "flex h-4 w-4 items-center justify-center rounded border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
+                "flex h-[15px] w-[15px] items-center justify-center rounded-[4px] border-[1.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
                 checked || indeterminate
                     ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-background hover:border-primary/60",
+                    : "border-input bg-background hover:border-primary/60",
             )}
         >
             {indeterminate ? (
@@ -244,7 +470,7 @@ function TableGroupDivider({
     toggleLabel: string;
 }) {
     return (
-        <tr data-group-divider="true" className="border-b border-border/60 bg-muted/50">
+        <tr data-group-divider="true" className="border-b border-border bg-[var(--surface-sunken,color-mix(in_oklab,var(--muted)_55%,var(--card)))]">
             <td colSpan={colSpan} className="px-3 py-1.5">
                 <GroupDividerContent
                     label={label}
@@ -308,6 +534,7 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
         onCellChange,
         rowActions,
         onRowClick,
+        getRowTone,
         previewOnNavigableClick,
         activeRowId,
         density: densityProp,
@@ -536,6 +763,7 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 onToggleRow={toggleRow}
                 rowActions={rowActions}
                 onRowClick={onRowClick}
+                getRowTone={getRowTone}
                 previewOnNavigableClick={previewOnNavigableClick}
                 activeRowId={activeRowId}
                 loading={loading}
@@ -561,15 +789,25 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
     }
 
     const colSpan = effectiveColumns.length + (showSelection ? 1 : 0) + (showActions ? 1 : 0);
-    const rowHeight = DENSITY_ROW_HEIGHT[density];
+    // Any pinned columns? drives the frozen-column sticky styling below (selection col freezes too).
+    const hasPinned = effectiveColumns.some((c) => c.pinned === "start");
+    // Same sticky styles the real cells get, in cell order, so the loading state freezes identically.
+    const skeletonPinnedStyles = hasPinned
+        ? [
+              ...(showSelection ? [selectionColumnSticky(hasPinned, "cell")] : []),
+              ...effectiveColumns.map((_, i) => pinnedColumnSticky(effectiveColumns, i, showSelection, "cell")),
+          ]
+        : undefined;
 
     return (
         <div
             className={cn(
-                // overflow-x-auto: when there are more columns than will fit in
-                // the container, expose horizontal scroll instead of clipping
-                // the trailing columns silently.
-                "microgrid-scrollbar w-full overflow-x-scroll overflow-y-hidden rounded-xl border border-border bg-card pb-1 shadow-sm",
+                // overflow-x-AUTO, not scroll: `scroll` reserves a permanently visible track even
+                // when nothing overflows, which on a one-row panel is a heavy grey bar under the
+                // data for no reason. `auto` still exposes the scroll when columns do not fit —
+                // trailing columns must never be clipped silently — but only then.
+                "microgrid-scrollbar w-full overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card shadow-sm",
+                SCROLLBAR_CLASS,
                 className,
             )}
         >
@@ -579,11 +817,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                         {showSelection && (
                             <th
                                 scope="col"
-                                className={cn(
-                                    "w-10 border-b border-border bg-muted/40 align-middle",
-                                    DENSITY_CELL_PADDING_X[density],
-                                    DENSITY_CELL_PADDING_Y[density],
-                                )}
+                                style={headCellStyle(selectionColumnSticky(hasPinned, "header"))}
+                                className={cn("w-10", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
                             >
                                 {selection === "multi" && (
                                     <div className="flex items-center justify-center">
@@ -597,29 +832,20 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                 )}
                             </th>
                         )}
-                        {effectiveColumns.map((col) => {
+                        {effectiveColumns.map((col, colIndex) => {
+                            const widthStyle: CSSProperties | undefined = col.width
+                                ? { width: typeof col.width === "number" ? `${col.width}px` : col.width }
+                                : undefined;
+                            const pinStyle = pinnedColumnSticky(effectiveColumns, colIndex, showSelection, "header");
                             return (
                                 <th
                                     key={col.id}
                                     scope="col"
-                                    style={
-                                        col.width
-                                            ? {
-                                                  width:
-                                                      typeof col.width === "number"
-                                                          ? `${col.width}px`
-                                                          : col.width,
-                                              }
-                                            : undefined
-                                    }
-                                    className={cn(
-                                        "border-b border-border bg-muted/40 align-middle text-xs font-medium uppercase tracking-wide text-muted-foreground",
-                                        DENSITY_CELL_PADDING_X[density],
-                                        DENSITY_CELL_PADDING_Y[density],
-                                    )}
+                                    style={headCellStyle({ ...widthStyle, ...pinStyle })}
+                                    className={cn(HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
                                 >
                                     <div className={cn("flex items-center gap-1.5", alignClass(col.align))}>
-                                        <span>{col.header}</span>
+                                        <span className="truncate">{col.header}</span>
                                         {col.headerSlot && <span className="ms-auto">{col.headerSlot}</span>}
                                     </div>
                                 </th>
@@ -628,11 +854,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                         {showActions && (
                             <th
                                 scope="col"
-                                className={cn(
-                                    "w-24 border-b border-border bg-muted/40 align-middle",
-                                    DENSITY_CELL_PADDING_X[density],
-                                    DENSITY_CELL_PADDING_Y[density],
-                                )}
+                                style={headCellStyle()}
+                                className={cn("w-24", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
                             />
                         )}
                     </tr>
@@ -642,7 +865,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                         <SkeletonRows
                             colSpan={colSpan}
                             rowCount={Math.max(displayRows.length, 4)}
-                            rowHeight={rowHeight}
+                            density={density}
+                            pinnedStyles={skeletonPinnedStyles}
                         />
                     ) : groupedRows && groupedRows.length === 0 ? (
                         <tr>
@@ -668,15 +892,17 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                     const id = getRowId(row);
                                     const selected = selectedSet.has(id);
                                     const isActive = activeRowId != null && activeRowId === id;
+                                    const tone = getRowTone?.(row);
                                     const confirming = confirmingDelete?.rowId === id;
                                     return (
                                         <tr
                                             key={id}
                                             data-testid="grid-row"
                                             data-row-id={id}
+                                            data-row-tone={tone}
                                             aria-selected={selected || undefined}
                                             aria-current={isActive ? "true" : undefined}
-                                            style={{ height: `${rowHeight}px` }}
+                                            style={rowStyle(density, rowBackground({ active: isActive, selected, tone }), isActive)}
                                             onClick={(e) => {
                                                 if (!onRowClick) return;
                                                 const target = e.target as HTMLElement;
@@ -684,22 +910,16 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                                 if (target.closest("button, a, input, select, textarea")) return;
                                                 onRowClick(row);
                                             }}
-                                            className={cn(
-                                                "group border-b border-border/60 transition-colors",
-                                                isActive
-                                                    ? "bg-[color-mix(in_srgb,var(--primary)_16%,transparent)] shadow-[inset_0_0_0_1.5px_var(--primary)]"
-                                                    : selected
-                                                        ? "bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]"
-                                                        : "hover:bg-muted/30",
-                                                onRowClick && "cursor-pointer",
-                                            )}
+                                            className={rowClass(!!onRowClick, !isActive && !selected && !tone)}
                                         >
                                             {showSelection && (
                                                 <td
+                                                    style={bodyCellStyle(selectionColumnSticky(hasPinned, "cell"))}
                                                     className={cn(
                                                         "w-10",
                                                         DENSITY_CELL_PADDING_X[density],
                                                         DENSITY_CELL_PADDING_Y[density],
+                                                        hasPinned && "mg-pinned-cell",
                                                     )}
                                                 >
                                                     <div className="flex items-center justify-center">
@@ -715,12 +935,13 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                                     </div>
                                                 </td>
                                             )}
-                                            {effectiveColumns.map((col) => (
+                                            {effectiveColumns.map((col, colIndex) => (
                                                 <DataCell
                                                     key={col.id}
                                                     column={col}
                                                     row={row}
                                                     density={density}
+                                                    stickyStyle={pinnedColumnSticky(effectiveColumns, colIndex, showSelection, "cell")}
                                                     isEditing={
                                                         editingCell?.rowId === id && editingCell?.columnId === col.id
                                                     }
@@ -738,6 +959,7 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                             ))}
                                             {showActions && (
                                                 <td
+                                                    style={bodyCellStyle()}
                                                     className={cn(
                                                         "w-24 text-end",
                                                         DENSITY_CELL_PADDING_X[density],
@@ -779,15 +1001,17 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                             const id = getRowId(row);
                             const selected = selectedSet.has(id);
                             const isActive = activeRowId != null && activeRowId === id;
+                            const tone = getRowTone?.(row);
                             const confirming = confirmingDelete?.rowId === id;
                             return (
                                 <tr
                                     key={id}
                                     data-testid="grid-row"
                                     data-row-id={id}
+                                    data-row-tone={tone}
                                     aria-selected={selected || undefined}
                                     aria-current={isActive ? "true" : undefined}
-                                    style={{ height: `${rowHeight}px` }}
+                                    style={rowStyle(density, rowBackground({ active: isActive, selected, tone }), isActive)}
                                     onClick={(e) => {
                                         if (!onRowClick) return;
                                         const target = e.target as HTMLElement;
@@ -795,22 +1019,16 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                         if (target.closest("button, a, input, select, textarea")) return;
                                         onRowClick(row);
                                     }}
-                                    className={cn(
-                                        "group border-b border-border/60 transition-colors",
-                                        isActive
-                                            ? "bg-[color-mix(in_srgb,var(--primary)_16%,transparent)] shadow-[inset_0_0_0_1.5px_var(--primary)]"
-                                            : selected
-                                                ? "bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]"
-                                                : "hover:bg-muted/30",
-                                        onRowClick && "cursor-pointer",
-                                    )}
+                                    className={rowClass(!!onRowClick, !isActive && !selected && !tone)}
                                 >
                                     {showSelection && (
                                         <td
+                                            style={bodyCellStyle(selectionColumnSticky(hasPinned, "cell"))}
                                             className={cn(
                                                 "w-10",
                                                 DENSITY_CELL_PADDING_X[density],
                                                 DENSITY_CELL_PADDING_Y[density],
+                                                hasPinned && "mg-pinned-cell",
                                             )}
                                         >
                                             <div className="flex items-center justify-center">
@@ -826,12 +1044,13 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                             </div>
                                         </td>
                                     )}
-                                    {effectiveColumns.map((col) => (
+                                    {effectiveColumns.map((col, colIndex) => (
                                         <DataCell
                                             key={col.id}
                                             column={col}
                                             row={row}
                                             density={density}
+                                            stickyStyle={pinnedColumnSticky(effectiveColumns, colIndex, showSelection, "cell")}
                                             isEditing={
                                                 editingCell?.rowId === id && editingCell?.columnId === col.id
                                             }
@@ -849,6 +1068,7 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                     ))}
                                     {showActions && (
                                         <td
+                                            style={bodyCellStyle()}
                                             className={cn(
                                                 "w-24 text-end",
                                                 DENSITY_CELL_PADDING_X[density],
@@ -933,6 +1153,8 @@ function DataCell<T>({
     onCancel,
     onRowClick,
     previewOnNavigableClick,
+    stickyStyle,
+    defaultVerticalAlign = "middle",
 }: {
     column: MicroColumn<T>;
     row: T;
@@ -944,6 +1166,14 @@ function DataCell<T>({
     onCancel: () => void;
     onRowClick?: (row: T) => void;
     previewOnNavigableClick?: boolean;
+    /** Sticky frozen-column style (set by the table for pinned columns). See pinnedColumnSticky. */
+    stickyStyle?: CSSProperties;
+    /**
+     * Alignment used when the column does not state one. 'middle' for the fixed-height desktop
+     * rows (§3); the medium/stacked layout passes 'top' so a one-line cell lines up with the first
+     * line of the multi-line cell beside it rather than floating against its middle.
+     */
+    defaultVerticalAlign?: "top" | "middle";
 }) {
     const { Link } = useMicroGridConfig();
     const value = resolveValue(row, column.accessor);
@@ -952,9 +1182,11 @@ function DataCell<T>({
     const isNavigable = !!href;
     const display = isNavigable ? navigableDisplayValue(value) : rendered;
 
-    // Default: top-aligned (per design decision 2026-05-24).
-    const vAlignCellClass = column.verticalAlign === "middle" ? "align-middle" : "align-top";
-    const vAlignFlex = column.verticalAlign === "middle" ? "items-center" : "items-start";
+    // Default: middle-aligned. Rows are a fixed height and their content is one line (§3); a column
+    // that wraps to several lines opts out with verticalAlign: "top".
+    const vAlign = column.verticalAlign ?? defaultVerticalAlign;
+    const vAlignCellClass = vAlign === "top" ? "align-top" : "align-middle";
+    const vAlignFlex = vAlign === "top" ? "items-start" : "items-center";
 
     if (isEditing && column.edit) {
         // Compare draft to initial before firing onCommit — closing the editor
@@ -970,6 +1202,7 @@ function DataCell<T>({
         };
         return (
             <td
+                style={bodyCellStyle(stickyStyle)}
                 className={cn(
                     "bg-background ring-2 ring-inset ring-primary",
                     vAlignCellClass,
@@ -989,16 +1222,20 @@ function DataCell<T>({
         );
     }
 
+    const isEmpty = isEmptyContent(href ? display : rendered) && !column.noEmptyDash;
+
     return (
         <td
+            style={bodyCellStyle({ fontSize: BODY_FS, ...stickyStyle })}
             className={cn(
-                "text-sm text-foreground",
+                "text-foreground",
                 vAlignCellClass,
                 DENSITY_CELL_PADDING_X[density],
                 DENSITY_CELL_PADDING_Y[density],
                 !isNavigable && column.edit &&
                     "cursor-pointer hover:bg-primary/5 hover:ring-1 hover:ring-inset hover:ring-primary/30",
                 isNavigable && "relative",
+                stickyStyle && "mg-pinned-cell",
             )}
             title={isNavigable ? titleFromValue(value) : column.edit ? "לחץ לעריכה" : undefined}
             onClick={
@@ -1018,7 +1255,9 @@ function DataCell<T>({
                     isNavigable && column.edit && "relative ps-8 ltr:ps-0 ltr:pe-8",
                 )}
             >
-                {href ? (
+                {isEmpty ? (
+                    <EmptyDash />
+                ) : href ? (
                     <Link
                         href={href}
                         prefetch={false}
@@ -1111,22 +1350,40 @@ function InlineConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCance
     );
 }
 
+/**
+ * Loading state (§11). Rows shaped like real rows, at the real row height, so nothing jumps when
+ * the data lands — and carrying the same `--mg-row-bg` as a live row, which is what keeps the
+ * frozen columns opaque while loading. Shimmer runs on the leading bar only: a full grid of
+ * pulsing blocks strobes.
+ */
 function SkeletonRows({
     colSpan,
     rowCount,
-    rowHeight,
+    density,
+    pinnedStyles,
 }: {
     colSpan: number;
     rowCount: number;
-    rowHeight: number;
+    density: MicroGridDensity;
+    /** Sticky styles per column index, so skeleton cells freeze exactly where real ones do. */
+    pinnedStyles?: (CSSProperties | undefined)[];
 }) {
     return (
         <>
             {Array.from({ length: rowCount }).map((_, ri) => (
-                <tr key={`sk-${ri}`} className="border-b border-border/60" style={{ height: `${rowHeight}px` }}>
+                <tr
+                    key={`sk-${ri}`}
+                    className="border-b border-border bg-[var(--mg-row-tint,var(--mg-row-bg))]"
+                    style={rowStyle(density, ROW_BG_BASE)}
+                >
                     {Array.from({ length: colSpan }).map((__, ci) => (
-                        <td key={ci} className="px-3 py-1.5">
-                            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+                        <td key={ci} className="px-3" style={bodyCellStyle(pinnedStyles?.[ci])}>
+                            <div
+                                className={cn(
+                                    "h-3 rounded bg-muted",
+                                    ci === 0 ? "w-3/4 animate-pulse" : "w-1/2 opacity-60",
+                                )}
+                            />
                         </td>
                     ))}
                 </tr>
@@ -1152,6 +1409,7 @@ function ResponsiveTableLayout<T>({
     onToggleRow,
     rowActions,
     onRowClick,
+    getRowTone,
     previewOnNavigableClick,
     activeRowId,
     loading,
@@ -1187,6 +1445,7 @@ function ResponsiveTableLayout<T>({
     onToggleRow: (rowId: string, shift: boolean) => void;
     rowActions?: MicroRowAction<T>[];
     onRowClick?: (row: T) => void;
+    getRowTone?: (row: T) => MicroRowTone | undefined;
     previewOnNavigableClick?: boolean;
     activeRowId?: string | null;
     loading?: boolean;
@@ -1213,20 +1472,21 @@ function ResponsiveTableLayout<T>({
         ...responsiveColumns.ungrouped.map((column) => ({ kind: "column" as const, column })),
     ];
     const colSpan = tableColumns.length + (showSelection ? 1 : 0) + (showActions ? 1 : 0);
-    const rowHeight = DENSITY_ROW_HEIGHT[density];
     const renderRow = (row: T) => {
         const id = getRowId(row);
         const selected = selectedSet.has(id);
         const isActive = activeRowId != null && activeRowId === id;
+        const tone = getRowTone?.(row);
         const confirming = confirmingDelete?.rowId === id;
         return (
             <tr
                 key={id}
                 data-testid="grid-row"
                 data-row-id={id}
+                data-row-tone={tone}
                 aria-selected={selected || undefined}
                 aria-current={isActive ? "true" : undefined}
-                style={{ height: `${rowHeight}px` }}
+                style={rowStyle(density, rowBackground({ active: isActive, selected, tone }), isActive)}
                 onClick={(e) => {
                     if (!onRowClick) return;
                     const target = e.target as HTMLElement;
@@ -1234,18 +1494,11 @@ function ResponsiveTableLayout<T>({
                     if (target.closest("button, a, input, select, textarea")) return;
                     onRowClick(row);
                 }}
-                className={cn(
-                    "group border-b border-border/60 transition-colors",
-                    isActive
-                        ? "bg-[color-mix(in_srgb,var(--primary)_16%,transparent)] shadow-[inset_0_0_0_1.5px_var(--primary)]"
-                        : selected
-                            ? "bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]"
-                            : "hover:bg-muted/30",
-                    onRowClick && "cursor-pointer",
-                )}
+                className={rowClass(!!onRowClick, !isActive && !selected && !tone)}
             >
                 {showSelection && (
                     <td
+                        style={bodyCellStyle()}
                         className={cn(
                             "w-10",
                             DENSITY_CELL_PADDING_X[density],
@@ -1287,6 +1540,7 @@ function ResponsiveTableLayout<T>({
                             column={entry.column}
                             row={row}
                             density={density}
+                            defaultVerticalAlign="top"
                             isEditing={
                                 editingCell?.rowId === id &&
                                 editingCell?.columnId === entry.column.id
@@ -1308,6 +1562,7 @@ function ResponsiveTableLayout<T>({
                 )}
                 {showActions && (
                     <td
+                        style={bodyCellStyle()}
                         className={cn(
                             "w-24 text-end",
                             DENSITY_CELL_PADDING_X[density],
@@ -1342,7 +1597,8 @@ function ResponsiveTableLayout<T>({
     return (
         <div
             className={cn(
-                "microgrid-scrollbar w-full overflow-x-scroll overflow-y-hidden rounded-xl border border-border bg-card pb-1 shadow-sm",
+                "microgrid-scrollbar w-full overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card shadow-sm",
+                SCROLLBAR_CLASS,
                 className,
             )}
         >
@@ -1352,11 +1608,8 @@ function ResponsiveTableLayout<T>({
                         {showSelection && (
                             <th
                                 scope="col"
-                                className={cn(
-                                    "w-10 border-b border-border bg-muted/40 align-middle",
-                                    DENSITY_CELL_PADDING_X[density],
-                                    DENSITY_CELL_PADDING_Y[density],
-                                )}
+                                style={headCellStyle()}
+                                className={cn("w-10", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
                             >
                                 {selection === "multi" && (
                                     <div className="flex items-center justify-center">
@@ -1380,18 +1633,15 @@ function ResponsiveTableLayout<T>({
                         {showActions && (
                             <th
                                 scope="col"
-                                className={cn(
-                                    "w-24 border-b border-border bg-muted/40 align-middle",
-                                    DENSITY_CELL_PADDING_X[density],
-                                    DENSITY_CELL_PADDING_Y[density],
-                                )}
+                                style={headCellStyle()}
+                                className={cn("w-24", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
                             />
                         )}
                     </tr>
                 </thead>
                 <tbody>
                     {loading ? (
-                        <SkeletonRows colSpan={colSpan} rowCount={Math.max(rows.length, 4)} rowHeight={rowHeight} />
+                        <SkeletonRows colSpan={colSpan} rowCount={Math.max(rows.length, 4)} density={density} />
                     ) : groups && groups.length === 0 ? (
                         <tr>
                             <td colSpan={colSpan}>{emptyState ?? <DefaultEmpty message={emptyMessage} />}</td>
@@ -1443,7 +1693,7 @@ function ResponsiveHeaderCell<T>({
     return (
         <th
             scope="col"
-            style={
+            style={headCellStyle(
                 entry.kind === "column" && entry.column.width
                     ? {
                           width:
@@ -1451,16 +1701,12 @@ function ResponsiveHeaderCell<T>({
                                   ? `${entry.column.width}px`
                                   : entry.column.width,
                       }
-                    : undefined
-            }
-            className={cn(
-                "border-b border-border bg-muted/40 align-middle text-xs font-medium uppercase tracking-wide text-muted-foreground",
-                DENSITY_CELL_PADDING_X[density],
-                DENSITY_CELL_PADDING_Y[density],
+                    : undefined,
             )}
+            className={cn(HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
         >
             <div className={cn("flex items-center gap-1.5", alignClass(column.align))}>
-                <span>{header}</span>
+                <span className="truncate">{header}</span>
                 {entry.kind === "column" && entry.column.headerSlot && (
                     <span className="ms-auto">{entry.column.headerSlot}</span>
                 )}
@@ -1497,6 +1743,7 @@ function ResponsiveGroupCell<T>({
     const isInline = group.layout === "inline";
     return (
         <td
+            style={bodyCellStyle()}
             className={cn(
                 "align-top text-sm text-foreground",
                 DENSITY_CELL_PADDING_X[density],

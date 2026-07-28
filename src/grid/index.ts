@@ -23,6 +23,7 @@ export type {
     MicroGridDensity,
     MicroGridProps,
     MicroRowAction,
+    MicroRowTone,
     MicroSelectionMode,
     MicroSortDirection,
     MicroSortState,

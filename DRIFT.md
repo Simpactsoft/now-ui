@@ -41,6 +41,36 @@ That is the good case. It means the merge is a port, not a reconciliation:
 there is no competing implementation in NOW to argue with, and no NOW consumer
 whose behaviour changes when the field lands.
 
+## Update 2026-07-28 — the grid delta is closed, and the design landed in the package
+
+Two things happened in one pass, in `@nowui/kit` **v0.2.0**:
+
+1. **`pinned?: "start"` is ported** (consolidation step 1 below). The 83-line
+   frozen-columns delta no longer exists — the package renders it, and SKYZ's
+   copy of `MicroGrid.tsx` and `types.ts` is now byte-identical to the package
+   apart from the six host seams (`next/link`, `@/lib/utils`, its own
+   `translations` and `APPEARANCE_DENSITY_EVENT`). Verify with:
+
+   ```
+   diff now-ui/src/grid/MicroGrid.tsx skyz-crm/src/components/microgrid/MicroGrid.tsx
+   ```
+
+   Anything in that diff beyond the seams is new drift.
+
+2. **The Skyz grid design (`GRID_AND_FILTERS.md` §1–§4, §10–§11) is now the
+   grid's own default**, in the component rather than in a host stylesheet.
+   It had been an opt-in `.mg-card` skin in SKYZ's `globals.css`; that skin and
+   the `background-image` re-layering hack that went with it are deleted. Both
+   are described in README → "What the host does NOT own: the grid's look".
+
+   This changes NOW's grid appearance — that is the point, but it is worth
+   naming: header no longer uppercase/letter-spaced and now sits on a sunken
+   band at 28px; rows are 30/36/42px rather than 32/40/56; body cells default to
+   middle alignment; empty cells render `—`; the checkbox is 15px.
+
+Steps 2 and 3 below (the three SKYZ-only components, then pointing SKYZ at the
+package) are still open. But the file that was drifting is no longer drifting.
+
 ## Status
 
 | | consumes `@nowui/kit`? |
@@ -65,8 +95,9 @@ pinned-columns delta grows.
 Coordinate with the סקיי 2 session before starting — steps 1 and 2 touch files
 it has open.
 
-1. Port `pinned?: "start"` and its `MicroGrid.tsx` rendering into
-   `@nowui/kit/grid`. Pure addition; existing tests must stay green untouched.
+1. ~~Port `pinned?: "start"` and its `MicroGrid.tsx` rendering into
+   `@nowui/kit/grid`.~~ **Done 2026-07-28, v0.2.0.** All 85 existing tests
+   stayed green; 11 more were added for the pinned group and the design rules.
 2. Decide where the three SKYZ-only components belong:
    - `ColumnChooser.tsx` (296) — column arrange/show-hide. Almost certainly
      shared; NOW has an equivalent need in ערכת תצוגה.

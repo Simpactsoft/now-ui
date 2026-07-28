@@ -130,6 +130,47 @@ re-subscribe the density listener.
 `labels` is merged field-by-field over the defaults, so a partial override is
 safe.
 
+### What the host does NOT own: the grid's look
+
+The grid's appearance is the Skyz design handoff (`GRID_AND_FILTERS.md` §1–§4,
+§10–§11) and it lives in `MicroGrid.tsx` — in classes and inline styles, not in
+any host stylesheet. That is deliberate: this package ships no CSS, so putting
+the design in the component is what makes it reach every consuming app instead
+of being re-skinned once per app and drifting.
+
+Do not re-skin a grid from the host. If a rule belongs to every grid, it belongs
+in the component; if it belongs to one screen, it belongs in that screen's
+`className`.
+
+**The design tokens it reads**, each with a fallback derived from the base
+palette. Define them and you get the handoff exactly; leave them undefined and
+you still get its structure — sunken header, hairline rules, fixed-height
+centred rows — in your own colours.
+
+| Token | Used for | Fallback |
+|---|---|---|
+| `--surface-sunken` | header band, group dividers | `color-mix(in oklab, var(--muted) 55%, var(--card))` |
+| `--fs-sm` | header and body type | 12px / 13px |
+| `--rowh` | row height | 30 / 36 / 42px by density |
+| `--surface-2` | the `muted` row tone (junk rows) | `color-mix(in oklab, var(--muted) 35%, var(--card))` |
+| `--warning-soft` | the `warning` row tone | `color-mix(in oklab, var(--warning) 14%, var(--card))` |
+
+**Row backgrounds go through one inherited custom property, `--mg-row-bg`.**
+This is §4b, and it is load-bearing rather than stylistic. Frozen columns need
+an opaque background or scrolling content slides under them — but a per-cell
+background breaks row hover, because `:hover` matches only the element under the
+pointer: hovering an unpinned cell highlights the row while the frozen name cell
+stays card-white, and the row renders two-tone. One property on the `<tr>`, which
+the row and every frozen cell paint from, fixes it — custom properties inherit,
+so the whole row repaints in step.
+
+Two consequences worth knowing before you change anything here:
+
+- Every row background is mixed against `var(--card)`, never against
+  `transparent`. A translucent row loses the frozen columns.
+- To tint a row, pass `getRowTone`. Do not add a `background` to the row from
+  outside — it will not reach the frozen cells.
+
 ---
 
 ---
