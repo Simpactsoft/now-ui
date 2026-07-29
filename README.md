@@ -124,11 +124,19 @@ re-subscribe the density listener.
 | Config key | Default | Why it is a seam |
 |---|---|---|
 | `Link` | plain `<a>` | the grid must not depend on any router |
-| `labels` | Hebrew | two group-toggle strings + the empty-state string |
+| `labels` | Hebrew | every user-visible string in the grid, the filter and the chooser |
 | `densityEventName` | `appearance:density-change` | the host owns its appearance system |
 
 `labels` is merged field-by-field over the defaults, so a partial override is
-safe.
+safe — overriding one string does not mean restating the other 33. Both full
+sets ship as `microGridLabels.he` / `microGridLabels.en`; a host with its own
+i18n layer passes its own object instead.
+
+Strings that interpolate are **functions**, not `{n}` templates
+(`filterBy(column)`, `filterSelectedNote(n)`, `chooserTitle(visible)`). A
+placeholder inside a string cannot be reordered for a language whose grammar
+puts the number elsewhere, and `filterSelectedNote` has to choose a different
+word at n=1 in both Hebrew and English.
 
 ### What the host does NOT own: the grid's look
 

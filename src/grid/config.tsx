@@ -31,11 +31,57 @@ export interface MicroGridLinkProps {
 
 export type MicroGridLinkComponent = ComponentType<MicroGridLinkProps>;
 
+/**
+ * Every user-visible string the grid and its two chrome components render.
+ *
+ * Flat and prefixed rather than nested: `MicroGridConfigInput` merges `labels`
+ * with one spread, so a host overriding a single string must not have to
+ * restate a whole nested group. Strings that interpolate are functions — a
+ * `{n}` placeholder in a string cannot be reordered for a language whose
+ * grammar puts the number elsewhere.
+ */
 export interface MicroGridLabels {
     collapseGroup: string;
     expandGroup: string;
     /** Shown by the built-in empty state when the host passes no message. */
     empty: string;
+    /** Prefix for a sortable header's aria-label, e.g. "Sort by" + " " + column. */
+    sortBy: string;
+
+    // --- ColumnFilter ---
+    filterBy: (column: string) => string;
+    filterActive: (n: number) => string;
+    filterSelectAll: string;
+    filterClear: string;
+    /** Explains that facet counts come from the server, over the filtered set. */
+    filterCountsNote: string;
+    filterSearchPlaceholder: (total: number) => string;
+    filterMatchCount: (shown: number, total: number) => string;
+    /** Shown when a facet's whole vocabulary is 1–2 values — usually a schema fault. */
+    filterSparseWarning: string;
+    filterSelectedNote: (n: number) => string;
+    filterNoMatch: string;
+    /** Says the search runs over the facet vocabulary, not over the rows. */
+    filterNoMatchHint: string;
+    filterNoOptions: string;
+    filterOnly: string;
+    filterOnlyTitle: (value: string) => string;
+    filterShowMore: (n: number) => string;
+    filterHiddenNote: (n: number) => string;
+
+    // --- ColumnChooser ---
+    chooserTrigger: string;
+    chooserTriggerAria: string;
+    chooserTitle: (visible: number) => string;
+    chooserReset: string;
+    chooserShow: string;
+    chooserHide: string;
+    chooserPin: string;
+    chooserUnpin: string;
+    chooserPinTitle: string;
+    chooserUnpinTitle: string;
+    chooserMoveUp: string;
+    chooserMoveDown: string;
 }
 
 export interface MicroGridConfig {
@@ -58,12 +104,74 @@ const HE_LABELS: MicroGridLabels = {
     collapseGroup: "כווץ קבוצה",
     expandGroup: "הרחב קבוצה",
     empty: "אין שורות להצגה",
+    sortBy: "מיין לפי",
+
+    filterBy: (column) => `סינון לפי ${column}`,
+    filterActive: (n) => `${n} פעילים`,
+    filterSelectAll: "בחר הכל",
+    filterClear: "נקה",
+    filterCountsNote: "ספירות מחושבות בשרת על הקבוצה המסוננת",
+    filterSearchPlaceholder: (total) => `חיפוש בין ${total} ערכים…`,
+    filterMatchCount: (shown, total) => `${shown} מתוך ${total}`,
+    filterSparseWarning: "אוצר המילים של הרשימה דל — ייתכן שהערכים לא הוגדרו כראוי בסכימה",
+    filterSelectedNote: (n) => (n === 1 ? "נבחר ערך אחד — מוצג ראשון" : `נבחרו ${n} ערכים — מוצגים ראשונים`),
+    filterNoMatch: "אין ערך תואם",
+    filterNoMatchHint: "החיפוש רץ על אוצר המילים של הרשימה, לא על הכרטיסים.",
+    filterNoOptions: "אין ערכים לסינון",
+    filterOnly: "רק",
+    filterOnlyTitle: (value) => `הצג רק ${value}`,
+    filterShowMore: (n) => `הצג ${n} נוספים`,
+    filterHiddenNote: (n) => `עוד ${n} ערכים לא מוצגים — צמצם בחיפוש`,
+
+    chooserTrigger: "הגדרות תצוגה",
+    chooserTriggerAria: "הגדרות תצוגה — בחירת וסידור עמודות",
+    chooserTitle: (visible) => `עמודות (${visible})`,
+    chooserReset: "איפוס",
+    chooserShow: "הצג",
+    chooserHide: "הסתר",
+    chooserPin: "הצמד",
+    chooserUnpin: "בטל הצמדת",
+    chooserPinTitle: "הצמד לתחילת הטבלה",
+    chooserUnpinTitle: "בטל הצמדה לתחילת הטבלה",
+    chooserMoveUp: "הזז מעלה",
+    chooserMoveDown: "הזז מטה",
 };
 
 const EN_LABELS: MicroGridLabels = {
     collapseGroup: "Collapse group",
     expandGroup: "Expand group",
     empty: "No rows to display",
+    sortBy: "Sort by",
+
+    filterBy: (column) => `Filter by ${column}`,
+    filterActive: (n) => `${n} active`,
+    filterSelectAll: "Select all",
+    filterClear: "Clear",
+    filterCountsNote: "Counts are computed on the server, over the filtered set",
+    filterSearchPlaceholder: (total) => `Search ${total} values…`,
+    filterMatchCount: (shown, total) => `${shown} of ${total}`,
+    filterSparseWarning: "This list has very few values — they may not be defined properly in the schema",
+    filterSelectedNote: (n) => (n === 1 ? "One value selected — shown first" : `${n} values selected — shown first`),
+    filterNoMatch: "No matching value",
+    filterNoMatchHint: "The search runs over the list's vocabulary, not over the records.",
+    filterNoOptions: "Nothing to filter by",
+    filterOnly: "only",
+    filterOnlyTitle: (value) => `Show only ${value}`,
+    filterShowMore: (n) => `Show ${n} more`,
+    filterHiddenNote: (n) => `${n} more values hidden — narrow with search`,
+
+    chooserTrigger: "View settings",
+    chooserTriggerAria: "View settings — choose and order columns",
+    chooserTitle: (visible) => `Columns (${visible})`,
+    chooserReset: "Reset",
+    chooserShow: "Show",
+    chooserHide: "Hide",
+    chooserPin: "Pin",
+    chooserUnpin: "Unpin",
+    chooserPinTitle: "Pin to the leading edge",
+    chooserUnpinTitle: "Unpin from the leading edge",
+    chooserMoveUp: "Move up",
+    chooserMoveDown: "Move down",
 };
 
 /** Built-in label sets, so a host with no i18n layer still gets both languages. */

@@ -98,13 +98,24 @@ it has open.
 1. ~~Port `pinned?: "start"` and its `MicroGrid.tsx` rendering into
    `@nowui/kit/grid`.~~ **Done 2026-07-28, v0.2.0.** All 85 existing tests
    stayed green; 11 more were added for the pinned group and the design rules.
-2. Decide where the three SKYZ-only components belong:
-   - `ColumnChooser.tsx` (296) — column arrange/show-hide. Almost certainly
-     shared; NOW has an equivalent need in ערכת תצוגה.
-   - `ColumnFilter.tsx` (167) — likely shared.
-   - `CardGrid.tsx` (127) — check against NOW's card view first; there may
-     already be an overlapping implementation.
-3. Point SKYZ at the package and delete its local copy.
+2. ~~Decide where the three SKYZ-only components belong.~~ **Done 2026-07-29,
+   v0.3.0.** All three moved in — `CardGrid`, `ColumnChooser` (with
+   `useColumnArrangement`) and `ColumnFilter`. None had a competing NOW
+   implementation, so again a port rather than a reconciliation, and no new
+   dependency: `@radix-ui/react-popover` and `lucide-react` were already peers.
+
+   The one real piece of work was language. All three were written straight
+   into Hebrew — 30-odd literals between them, several interpolated. They now
+   read every string from `MicroGridLabels`, which grew from 3 entries to 34
+   and ships `he` and `en` sets. Interpolating strings are **functions**, not
+   `{n}` templates: a placeholder cannot be moved for a language that puts the
+   number somewhere else, and `filterSelectedNote` has to pick a different word
+   at n=1 in both languages.
+
+3. Point SKYZ at the package and delete its local copy. Nothing blocks it now:
+   the package holds every component SKYZ imports, and SKYZ reaches all of them
+   through one barrel (`@/components/microgrid`), so the swap is a shim plus a
+   provider rather than an edit to each of the seven consuming modules.
 4. Only then is the fork closed.
 
 ## Why this was worth doing now
