@@ -76,7 +76,7 @@ package) are still open. But the file that was drifting is no longer drifting.
 | | consumes `@nowui/kit`? |
 |---|---|
 | NOW | ✅ since 2026-07-27 — merged to `main`, live on `dev.nowview.io`. Not on `release`/production. |
-| SKYZ | ❌ still its own copy — owned by a parallel session |
+| SKYZ | ✅ since 2026-07-29 — grid **and** panels, on `feat/grid-design-and-app-shell`. |
 
 Vercel builds it fine: the tag archive URL installs remotely with no auth, no
 SSH and no build configuration (`added 23 packages ... in 2s`), and the full
@@ -87,13 +87,14 @@ NOW's local copies are gone. `components/microgrid/index.ts`,
 now one-line re-exports, so all ~40 consuming modules stayed untouched — the
 whole wiring is 3 shims + 1 provider + 2 config lines.
 
-**SKYZ is now the only fork.** Every hour it stays that way, the 83-line
-pinned-columns delta grows.
+**There is no fork left.** SKYZ's `components/microgrid/index.ts` and
+`entity-view/DraggablePanels.tsx` are one-line re-exports too, with two host
+providers (`MicroGridHost`, `PanelsHost`) in its root layout. 7,052 duplicated
+lines are gone from that repo — 4,279 of grid, 2,773 of panels.
 
 ## Consolidation plan
 
-Coordinate with the סקיי 2 session before starting — steps 1 and 2 touch files
-it has open.
+All four steps are done. Kept as a record of what moved and why.
 
 1. ~~Port `pinned?: "start"` and its `MicroGrid.tsx` rendering into
    `@nowui/kit/grid`.~~ **Done 2026-07-28, v0.2.0.** All 85 existing tests
@@ -112,11 +113,29 @@ it has open.
    number somewhere else, and `filterSelectedNote` has to pick a different word
    at n=1 in both languages.
 
-3. Point SKYZ at the package and delete its local copy. Nothing blocks it now:
-   the package holds every component SKYZ imports, and SKYZ reaches all of them
-   through one barrel (`@/components/microgrid`), so the swap is a shim plus a
-   provider rather than an edit to each of the seven consuming modules.
-4. Only then is the fork closed.
+3. ~~Point SKYZ at the package and delete its local copy.~~ **Done 2026-07-29,
+   `skyz-crm@4308896`.** 4,279 vendored lines deleted. All seven consuming
+   modules were left alone: they import `@/components/microgrid`, which is now
+   a single `export *`, plus a `MicroGridHost` provider in the root layout.
+
+   Two host requirements fail **silently** and cost a debugging session each:
+   `transpilePackages: ["@nowui/kit"]` (the package ships `.tsx`, and `tsc`
+   passes either way) and the `@source` line for Tailwind (no CSS ships, so
+   without it every grid renders unstyled with no error). Both are in the README
+   under "Wiring the grid into a host app"; check them first when a host looks
+   broken.
+
+4. ~~Panels.~~ **Done 2026-07-29, `skyz-crm@562e446`.** Not in the original
+   plan — `DraggablePanels.tsx` was byte-identical when this report was written,
+   so it looked like it could wait. It could not: the diff had grown to 47 lines,
+   all host seams, and every panel fix made on NOW's side was still stranded.
+   SKYZ supplies them through a `PanelsHost` provider, including
+   `usePanelLayoutDB` for the persistence seam — which is the whole hook, not a
+   load/save pair, so presets and debounced saves crossed over untouched.
+
+5. **The fork is closed.** NOW and SKYZ render the same grid *and the same
+   panels* from the same source. From here a change is one PR, and the next
+   consumer wires a handful of config values instead of copying a directory.
 
 ## Why this was worth doing now
 
