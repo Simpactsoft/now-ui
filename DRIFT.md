@@ -172,3 +172,25 @@ bumps — it has never had one.
 
 Labels: `MicroGridLabels` gained the nine date presets, the presence triple and the
 shell chrome, in HE and EN. Nothing in the new components is hardcoded Hebrew.
+
+
+## 2026-07-30 — v0.6.0: cell states, tokens, empty states
+
+| Added | Where the host still decides |
+|---|---|
+| `MicroCellState` (13 states) + `cellState` on a column | WHICH state a cell is in |
+| `refused` / `error` / `conflict` reasons | The wording — the grid never invents a rule's text |
+| `GridEmptyState` (noData / filtered / error) | Which of the three applies |
+| `MicroRowAction.confirm` | The action set — the grid must not offer what the engine refuses |
+| `--cellpad`-driven padding | The token values |
+
+BREAKING: `MicroGridDensity` drops `"comfortable"`. Migration is exact — old
+`comfortable` was 42px and the new `cozy` is also 42px. Existing `cozy` grows 36 → 42,
+which is the design change itself.
+
+Both consumers migrated. NOW went v0.2.0 → v0.6.0 in one step, typechecks clean, on
+branch `chore/nowui-kit-v0.6.0`.
+
+Not yet done anywhere: `cellState` is declared by no column yet, so the `staged` ↔
+dry-run wiring is unexercised; and only the desktop table path applies the treatment —
+the mobile-card and responsive-medium layouts ignore it.
