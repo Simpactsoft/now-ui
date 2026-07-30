@@ -2,6 +2,9 @@
 
 import { useState, type ReactNode } from "react";
 import { useMicroGridConfig } from "./config";
+import { SavedViews } from "./SavedViews";
+import { FilterStateBar } from "./FilterStateBar";
+import { hasAnyFilter, sameState, type SavedView, type ViewState } from "./viewState";
 import {
     FacetPanel,
     QUICK_DATE_PRESETS,
@@ -13,7 +16,7 @@ import {
 } from "./FacetPanel";
 
 /**
- * BrowseShell — the browse surface around a MicroGrid.
+ * Browse — the browse surface: a MicroGrid plus everything around it.
  *
  * ── Why the toolbar is inside the grid's box and not around it ───────────────────────────────────
  * The design draws ONE `--card` with `border-radius: var(--radius); overflow: hidden`, and puts the
@@ -38,7 +41,7 @@ import {
  * English gets English by swapping one label set.
  */
 
-export type BrowseShellProps = {
+export type BrowseProps = {
     /** Every filterable field — column or not. This one list drives the drawer, the chips and the panel. */
     fields: FacetField[];
     /** Free-text search over the list. Omit to hide the search box entirely. */
@@ -57,9 +60,26 @@ export type BrowseShellProps = {
     openFacetId?: string | null;
     onOpenFacet?: (fieldId: string | null) => void;
 
+    /**
+     * Saved views. Pass the list and the callbacks; WHERE they are stored stays yours — one app uses
+     * localStorage, another a server. Omit to render no views strip at all.
+     */
+    views?: {
+        list: SavedView[];
+        activeId: string | null;
+        state: ViewState;
+        savedSnapshot: ViewState | null;
+        onPick: (v: SavedView) => void;
+        onClearAll: () => void;
+        onSaveNew: (name: string) => void;
+        onSaveChange: () => void;
+        onRestore: () => void;
+        onRename: (id: string, name: string) => void;
+        onDuplicate: (id: string) => void;
+        onDelete: (id: string) => void;
+        onToggleShared: (id: string) => void;
+    };
     /** Slots, in the design's order. Each is optional; an absent slot renders no band at all. */
-    savedViews?: ReactNode;
-    stateBar?: ReactNode;
     selectionBar?: ReactNode;
     toolbarEnd?: ReactNode;
     footer?: ReactNode;
@@ -77,21 +97,20 @@ const STRIP: React.CSSProperties = {
     flexWrap: "wrap",
 };
 
-export function BrowseShell({
+export function Browse({
     fields,
     search,
     junk,
     quickDateFieldId,
     onClearAll,
+    views,
     openFacetId,
     onOpenFacet,
-    savedViews,
-    stateBar,
     selectionBar,
     toolbarEnd,
     footer,
     children,
-}: BrowseShellProps) {
+}: BrowseProps) {
     const { labels } = useMicroGridConfig();
     const [addOpen, setAddOpen] = useState(false);
     const [ownFacet, setOwnFacet] = useState<string | null>(null);
@@ -121,6 +140,10 @@ export function BrowseShell({
         : f.kind === "date" ? labels.browseHintDate
         : labels.browseHintPresence;
 
+    // Dirty is COMPUTED from current-vs-saved, never counted: undoing an edit by hand has to clear
+    // the "changed" badge on its own, or the badge becomes noise the user learns to ignore.
+    const dirty = !!views?.savedSnapshot && !sameState(views.state, views.savedSnapshot);
+
     const active = fields.filter(isActive);
     const quickField = fields.find((f) => f.id === quickDateFieldId && f.kind === "date") as
         | (FacetField & { kind: "date" })
@@ -136,8 +159,23 @@ export function BrowseShell({
                 overflow: "hidden",
             }}
         >
-            {savedViews && (
-                <div style={{ ...STRIP, background: "var(--surface-2)" }}>{savedViews}</div>
+            {views && (
+                <div style={{ ...STRIP, background: "var(--surface-2)" }}>
+                    <SavedViews
+                        views={views.list}
+                        activeId={views.activeId}
+                        dirty={dirty}
+                        state={views.state}
+                        clearable={hasAnyFilter(views.state) || !!views.activeId}
+                        onPick={views.onPick}
+                        onClearView={views.onClearAll}
+                        onRename={views.onRename}
+                        onDuplicate={views.onDuplicate}
+                        onDelete={views.onDelete}
+                        onToggleShared={views.onToggleShared}
+                        onSaveNew={views.onSaveNew}
+                    />
+                </div>
             )}
 
             <div style={STRIP}>
@@ -420,7 +458,18 @@ export function BrowseShell({
                 </div>
             )}
 
-            {stateBar}
+            {views && (
+                <FilterStateBar
+                    state={views.state}
+                    hasView={!!views.activeId}
+                    dirty={dirty}
+                    onSaveNew={views.onSaveNew}
+                    onSaveChange={views.onSaveChange}
+                    onSaveAsNew={views.onSaveNew}
+                    onRestore={views.onRestore}
+                    onClear={views.onClearAll}
+                />
+            )}
             {selectionBar}
 
             {/* The facet strip sits with the rows, inside the same scroll container — see the note at

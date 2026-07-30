@@ -110,6 +110,38 @@ export interface MicroGridLabels {
     browseQuickDates: string;
     browseLoadMore: (n: number) => string;
     browseCount: (shown: number, total: number) => string;
+
+    // --- SavedViews + FilterStateBar ---
+    viewsTitle: string;
+    viewsAll: string;
+    viewsAllHint: string;
+    viewsBackToAll: string;
+    viewsNamePlaceholder: string;
+    viewsRename: string;
+    viewsDuplicate: string;
+    viewsDelete: string;
+    viewsShared: string;
+    viewsPrivate: string;
+    viewsMakePrivate: string;
+    viewsMakeShared: string;
+    viewsEmpty: string;
+    viewsChangedBadge: string;
+    viewsConditions: (n: number) => string;
+    /** The three filter states of §9. */
+    stateNoFilterHint: string;
+    stateUnsaved: string;
+    stateSaveAsView: string;
+    stateSaveChange: string;
+    stateSaveAsNew: string;
+    stateRestore: string;
+    stateDrifted: string;
+    stateSave: string;
+    stateCancel: string;
+    stateClear: string;
+    viewsCaption: string;
+    viewsCreatedBy: (who: string) => string;
+    viewsWillSave: string;
+    viewsSaveCurrent: string;
 }
 
 export interface MicroGridConfig {
@@ -197,6 +229,36 @@ const HE_LABELS: MicroGridLabels = {
     browseQuickDates: "פעילות",
     browseLoadMore: (n) => `טען ${n} נוספים`,
     browseCount: (shown, total) => `${shown} מתוך ${total}`,
+
+    viewsTitle: "תצוגות שמורות",
+    viewsAll: "כל הרשומות",
+    viewsAllHint: "מנקה את הסינון ויוצא מהתצוגה השמורה",
+    viewsBackToAll: "חזרה לכל הרשומות",
+    viewsNamePlaceholder: "שם התצוגה",
+    viewsRename: "שנה שם",
+    viewsDuplicate: "שכפל",
+    viewsDelete: "מחק תצוגה",
+    viewsShared: "משותפת",
+    viewsPrivate: "פרטית",
+    viewsMakePrivate: "משותפת לכולם — לחץ להפוך לפרטית",
+    viewsMakeShared: "פרטית — לחץ לשתף",
+    viewsEmpty: "אין עדיין תצוגות. סנן את הרשימה ושמור אותה כאן.",
+    viewsChangedBadge: "שונה",
+    viewsConditions: (n) => (n === 1 ? "תנאי אחד" : `${n} תנאים`),
+    stateNoFilterHint: "בחר תצוגה שמורה, או סנן ואז שמור",
+    stateUnsaved: "סינון לא שמור",
+    stateSaveAsView: "שמור כתצוגה",
+    stateSaveChange: "שמור שינוי",
+    stateSaveAsNew: "שמור כחדש",
+    stateRestore: "שחזר",
+    stateDrifted: "הסינון שונה מהתצוגה השמורה",
+    stateSave: "שמור",
+    stateCancel: "ביטול",
+    stateClear: "נקה",
+    viewsCaption: "תצוגה שומרת סינון, מיון והסתרות — לא נתונים",
+    viewsCreatedBy: (who) => `נוצר על ידי ${who}`,
+    viewsWillSave: "יישמר:",
+    viewsSaveCurrent: "שמור סינון נוכחי",
 };
 
 const EN_LABELS: MicroGridLabels = {
@@ -268,6 +330,36 @@ const EN_LABELS: MicroGridLabels = {
     browseQuickDates: "Activity",
     browseLoadMore: (n) => `Load ${n} more`,
     browseCount: (shown, total) => `${shown} of ${total}`,
+
+    viewsTitle: "Saved views",
+    viewsAll: "All records",
+    viewsAllHint: "Clears the filter and leaves the saved view",
+    viewsBackToAll: "Back to all records",
+    viewsNamePlaceholder: "View name",
+    viewsRename: "Rename",
+    viewsDuplicate: "Duplicate",
+    viewsDelete: "Delete view",
+    viewsShared: "Shared",
+    viewsPrivate: "Private",
+    viewsMakePrivate: "Shared with everyone — click to make private",
+    viewsMakeShared: "Private — click to share",
+    viewsEmpty: "No views yet. Filter the list and save it here.",
+    viewsChangedBadge: "Changed",
+    viewsConditions: (n) => (n === 1 ? "one condition" : `${n} conditions`),
+    stateNoFilterHint: "Pick a saved view, or filter and then save",
+    stateUnsaved: "Unsaved filter",
+    stateSaveAsView: "Save as view",
+    stateSaveChange: "Save change",
+    stateSaveAsNew: "Save as new",
+    stateRestore: "Restore",
+    stateDrifted: "The filter differs from the saved view",
+    stateSave: "Save",
+    stateCancel: "Cancel",
+    stateClear: "Clear",
+    viewsCaption: "A view saves filtering, sorting and hidden columns — not data",
+    viewsCreatedBy: (who) => `Created by ${who}`,
+    viewsWillSave: "Will save:",
+    viewsSaveCurrent: "Save current filter",
 };
 
 /** Built-in label sets, so a host with no i18n layer still gets both languages. */

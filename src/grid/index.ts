@@ -58,7 +58,19 @@ export type {
 
 export { cn } from "./utils";
 
-export { BrowseShell, type BrowseShellProps } from "./BrowseShell";
+export { Browse, type BrowseProps } from "./Browse";
+export { SavedViews } from "./SavedViews";
+export { FilterStateBar } from "./FilterStateBar";
+export {
+    emptyState,
+    sameState,
+    describeState,
+    hasAnyFilter,
+    conditionCount,
+    type SavedView,
+    type ViewState,
+    type ViewKind,
+} from "./viewState";
 export {
     FacetPanel,
     FacetTrigger,
