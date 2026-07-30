@@ -144,3 +144,31 @@ NOW's `CLAUDE.md` rules 16 and 17 exist because of real panel bugs that were
 found and fixed — none of those fixes can reach SKYZ while the file is a copy.
 The grid has already begun to diverge. 83 lines is a cheap merge; 830 would not
 be.
+
+
+---
+
+## 2026-07-30 — v0.4.0: the browse envelope moves in
+
+The drift this file was written to track is closed for the grid, and a new surface
+joined the package rather than being built twice.
+
+`BrowseShell` + `FacetPanel` were built in `skyz-crm` first (the filter work), then
+moved here. What moved and what deliberately did not:
+
+| Moved into `@nowui/kit/grid` | Stayed in the host app |
+|---|---|
+| The `--card` envelope and its band order | Facet loading (the SQL, the counts) |
+| The add-filter drawer | Saved-view persistence |
+| The facet panel — values / date / presence | The bulk-action wiring |
+| The four inline quick-date chips | What a "city" or an "owner" IS |
+| The chips and "clear all" | |
+
+`FacetField` is the seam: a description of a control plus its callbacks. The package
+never learns a field's meaning, so nothing app-specific leaked in.
+
+Both consumers are on v0.4.0. NOW gets the browse surface for free the next time it
+bumps — it has never had one.
+
+Labels: `MicroGridLabels` gained the nine date presets, the presence triple and the
+shell chrome, in HE and EN. Nothing in the new components is hardcoded Hebrew.
