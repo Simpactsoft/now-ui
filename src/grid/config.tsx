@@ -82,6 +82,34 @@ export interface MicroGridLabels {
     chooserUnpinTitle: string;
     chooserMoveUp: string;
     chooserMoveDown: string;
+
+    // --- FacetPanel: kinds the column popover never had ---
+    /** The nine date presets, keyed by id — see `DATE_PRESET_IDS`. */
+    datePresets: Record<string, string>;
+    dateCustomRange: string;
+    dateFrom: string;
+    dateTo: string;
+    dateShowing: (window: string) => string;
+    dateNoRange: string;
+    /** Says the range includes both ends and compares dates, not strings. */
+    dateRangeNote: string;
+    presenceAny: string;
+    presenceHas: (field: string) => string;
+    presenceHasNot: (field: string) => string;
+
+    // --- BrowseShell ---
+    browseSearchPlaceholder: string;
+    browseClearSearch: string;
+    browseAddFilter: string;
+    browseAddFilterHint: string;
+    browseClose: string;
+    browseClearAll: string;
+    browseHintValues: string;
+    browseHintDate: string;
+    browseHintPresence: string;
+    browseQuickDates: string;
+    browseLoadMore: (n: number) => string;
+    browseCount: (shown: number, total: number) => string;
 }
 
 export interface MicroGridConfig {
@@ -135,6 +163,40 @@ const HE_LABELS: MicroGridLabels = {
     chooserUnpinTitle: "בטל הצמדה לתחילת הטבלה",
     chooserMoveUp: "הזז מעלה",
     chooserMoveDown: "הזז מטה",
+
+    datePresets: {
+        today: "היום",
+        yesterday: "אתמול",
+        d7: "7 ימים אחרונים",
+        d30: "30 ימים אחרונים",
+        month: "החודש",
+        prevMonth: "החודש שעבר",
+        quarter: "הרבעון",
+        year: "השנה",
+        stale90: "ללא פעילות 90 יום",
+    },
+    dateCustomRange: "טווח מותאם",
+    dateFrom: "מ־",
+    dateTo: "עד",
+    dateShowing: (w) => `מציג רשומות: ${w}`,
+    dateNoRange: "לא נבחר טווח — כל הרשומות",
+    dateRangeNote: "הטווח כולל את שני הקצוות, וההשוואה רצה על תאריכים ולא על מחרוזות",
+    presenceAny: "לא משנה",
+    presenceHas: (f) => `יש ${f}`,
+    presenceHasNot: (f) => `אין ${f}`,
+
+    browseSearchPlaceholder: "חיפוש ברשימה…",
+    browseClearSearch: "נקה חיפוש",
+    browseAddFilter: "סינון",
+    browseAddFilterHint: "הוסף סינון לפי שדה — ייפתח בחלונית הפיסוט של אותו שדה",
+    browseClose: "סגור ✕",
+    browseClearAll: "נקה הכל",
+    browseHintValues: "בחירה מרובה מתוך הערכים בתוצאה",
+    browseHintDate: "טווח מוכן או תאריכים מותאמים",
+    browseHintPresence: "יש / אין / לא משנה",
+    browseQuickDates: "פעילות",
+    browseLoadMore: (n) => `טען ${n} נוספים`,
+    browseCount: (shown, total) => `${shown} מתוך ${total}`,
 };
 
 const EN_LABELS: MicroGridLabels = {
@@ -172,6 +234,40 @@ const EN_LABELS: MicroGridLabels = {
     chooserUnpinTitle: "Unpin from the leading edge",
     chooserMoveUp: "Move up",
     chooserMoveDown: "Move down",
+
+    datePresets: {
+        today: "Today",
+        yesterday: "Yesterday",
+        d7: "Last 7 days",
+        d30: "Last 30 days",
+        month: "This month",
+        prevMonth: "Last month",
+        quarter: "This quarter",
+        year: "This year",
+        stale90: "No activity in 90 days",
+    },
+    dateCustomRange: "Custom range",
+    dateFrom: "From",
+    dateTo: "To",
+    dateShowing: (w) => `Showing: ${w}`,
+    dateNoRange: "No range selected — all records",
+    dateRangeNote: "The range includes both ends, and compares dates rather than strings",
+    presenceAny: "Any",
+    presenceHas: (f) => `Has ${f}`,
+    presenceHasNot: (f) => `No ${f}`,
+
+    browseSearchPlaceholder: "Search the list…",
+    browseClearSearch: "Clear search",
+    browseAddFilter: "Filter",
+    browseAddFilterHint: "Add a filter by field — opens that field's facet panel",
+    browseClose: "Close ✕",
+    browseClearAll: "Clear all",
+    browseHintValues: "Multi-select from the values in the result",
+    browseHintDate: "A preset window or custom dates",
+    browseHintPresence: "Has / has not / any",
+    browseQuickDates: "Activity",
+    browseLoadMore: (n) => `Load ${n} more`,
+    browseCount: (shown, total) => `${shown} of ${total}`,
 };
 
 /** Built-in label sets, so a host with no i18n layer still gets both languages. */
