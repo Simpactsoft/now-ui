@@ -41,7 +41,7 @@ export type MicroEditConfig<T> =
           }) => ReactNode;
       };
 
-export type MicroGridDensity = "compact" | "cozy" | "comfortable";
+export type MicroGridDensity = "compact" | "cozy";
 
 export type MicroSortDirection = "asc" | "desc";
 
@@ -104,6 +104,11 @@ export interface MicroColumn<T> {
     navigateTo?: (row: T) => string | undefined;
     /** Opt this column into inline editing. */
     edit?: MicroEditConfig<T>;
+    /**
+     * The cell's engine-side state (§3.1). Absent ⇒ `idle`, so adding this to one column leaves every
+     * other column exactly as it was.
+     */
+    cellState?: MicroCellStateFn<T>;
     /** Hidden when MicroGrid switches to mobile-card layout. */
     hideOnMobile?: boolean;
     /** Promoted to card title in mobile layout. */
@@ -112,6 +117,12 @@ export interface MicroColumn<T> {
     isCardSubtitle?: boolean;
 }
 
+/**
+ * The cell's engine-side state, per row and column. Absent ⇒ `idle`, so adding this to one column
+ * changes nothing anywhere else.
+ */
+export type MicroCellStateFn<T> = (row: T, value: unknown) => import("./cellState").MicroCellMeta;
+
 export interface MicroRowAction<T> {
     id: string;
     label: string;
@@ -119,6 +130,16 @@ export interface MicroRowAction<T> {
     onClick?: (row: T) => void;
     show?: (row: T) => boolean;
     variant?: "default" | "destructive";
+    /**
+     * Ask before acting, INLINE in the row — never a browser `confirm`, which loses the row context
+     * and cannot be styled or translated.
+     *
+     * Skyz has no row delete: the real actions are FREEZE (a status change) and DETACH (dropping a
+     * relationship), so the wording is per-action rather than a generic "are you sure". The default
+     * action set must come from the host, so the grid never advertises an action the engine will
+     * refuse (`MicroGrid States.dc.html` §2).
+     */
+    confirm?: { question: string; cancel: string; confirm: string };
 }
 
 export interface MicroGroup<T> {

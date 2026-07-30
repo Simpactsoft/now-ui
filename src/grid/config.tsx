@@ -134,6 +134,7 @@ export interface MicroGridLabels {
     stateSaveChange: string;
     stateSaveAsNew: string;
     stateRestore: string;
+    editCell: string;
     stateDrifted: string;
     stateSave: string;
     stateCancel: string;
@@ -251,6 +252,7 @@ const HE_LABELS: MicroGridLabels = {
     stateSaveChange: "שמור שינוי",
     stateSaveAsNew: "שמור כחדש",
     stateRestore: "שחזר",
+    editCell: "לחץ לעריכה",
     stateDrifted: "הסינון שונה מהתצוגה השמורה",
     stateSave: "שמור",
     stateCancel: "ביטול",
@@ -352,6 +354,7 @@ const EN_LABELS: MicroGridLabels = {
     stateSaveChange: "Save change",
     stateSaveAsNew: "Save as new",
     stateRestore: "Restore",
+    editCell: "Click to edit",
     stateDrifted: "The filter differs from the saved view",
     stateSave: "Save",
     stateCancel: "Cancel",

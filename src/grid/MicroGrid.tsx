@@ -13,6 +13,7 @@ import { Fragment, useCallback, useMemo, useRef, useState, useSyncExternalStore,
 import { Check, ChevronDown, ChevronRight, Inbox, MoreHorizontal, Pencil } from "lucide-react";
 import { cn } from "./utils";
 import { useMicroGridConfig } from "./config";
+import { cellStateAria, cellStateTreatment, MESSAGE_TONE, NON_EDITABLE, type MicroCellMeta } from "./cellState";
 import type {
     MicroColumn,
     MicroGroup,
@@ -83,12 +84,11 @@ const HEAD_HEIGHT = 28;
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-// Row height per density. These are the handoff's --rowh values (30 / 36 / 42), used as the
-// fallback for the host token so an app that ships the density scale drives it from there.
+// Row height per density — the design bundle's --rowh values, used as the FALLBACK for the host
+// token so an app that ships the density scale drives it from there instead.
 const DENSITY_ROW_HEIGHT: Record<MicroGridDensity, number> = {
-    compact: 30,
-    cozy: 36,
-    comfortable: 42,
+    compact: 32,
+    cozy: 42,
 };
 
 /** `height: var(--rowh, <density>)` — the host's density token wins where it exists. */
@@ -96,17 +96,33 @@ function rowHeightCss(density: MicroGridDensity): string {
     return `var(--rowh, ${DENSITY_ROW_HEIGHT[density]}px)`;
 }
 
-const DENSITY_CELL_PADDING_Y: Record<MicroGridDensity, string> = {
-    compact: "py-1",
-    cozy: "py-1.5",
-    comfortable: "py-2",
+/**
+ * Cell padding comes from `--cellpad`, not from a density class.
+ *
+ * That is what makes the four TEXT SCALES work: a scale re-declares --cellpad along with --rowh and
+ * --fs, so the cell breathes with the type. Tailwind classes keyed off density could not — they only
+ * know two steps and nothing about scale, so at 150% the text grew and the padding did not.
+ *
+ * The per-density numbers survive as the fallback for a host that ships no token.
+ */
+const DENSITY_CELL_PAD: Record<MicroGridDensity, string> = {
+    compact: "8px",
+    cozy: "12px",
 };
 
-const DENSITY_CELL_PADDING_X: Record<MicroGridDensity, string> = {
-    compact: "px-2",
-    cozy: "px-3",
-    comfortable: "px-3",
-};
+/** Horizontal padding — the full --cellpad. */
+function cellPadX(density: MicroGridDensity): string {
+    return `var(--cellpad, ${DENSITY_CELL_PAD[density]})`;
+}
+
+/**
+ * Vertical padding is HALF the token: the row already has a fixed height from --rowh, so applying the
+ * full value top and bottom overflows a compact row (8+8 padding inside a 32px row leaves 16px for
+ * 13.5px text plus its line-height). Halving keeps the cell centred at every scale.
+ */
+function cellPadY(density: MicroGridDensity): string {
+    return `calc(var(--cellpad, ${DENSITY_CELL_PAD[density]}) / 2)`;
+}
 
 const MEDIUM_RESPONSIVE_FIELD_WIDTH_CLASS = "w-[180px] max-w-[180px]";
 const EMPTY_COLLAPSED_GROUPS = new Set<string>();
@@ -190,8 +206,13 @@ const ROW_RING_ACTIVE = "inset 0 1.5px 0 0 var(--primary), inset 0 -1.5px 0 0 va
 const CELL_RING = `var(${ROW_RING_VAR}, 0 0 transparent)`;
 
 /** Style for an ordinary (unfrozen) body cell. */
-function bodyCellStyle(extra?: CSSProperties): CSSProperties {
-    return { boxShadow: CELL_RING, ...extra };
+function bodyCellStyle(density: MicroGridDensity, extra?: CSSProperties): CSSProperties {
+    return {
+        boxShadow: CELL_RING,
+        paddingInline: cellPadX(density),
+        paddingBlock: cellPadY(density),
+        ...extra,
+    };
 }
 
 /** Resolved row background, highest-priority state first. */
@@ -384,7 +405,9 @@ function DefaultEmpty({ message }: { message?: string }) {
 function readGlobalDensity(): MicroGridDensity {
     if (typeof document === "undefined") return "cozy";
     const density = document.documentElement.dataset.density;
-    if (density === "compact" || density === "comfortable") return density;
+    // Two steps, matching the design bundle. This used to accept "comfortable" and REJECT "cozy",
+    // so a host stamping the design's own cozy value silently got the default instead.
+    if (density === "compact" || density === "cozy") return density;
     return "cozy";
 }
 
@@ -817,8 +840,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                         {showSelection && (
                             <th
                                 scope="col"
-                                style={headCellStyle(selectionColumnSticky(hasPinned, "header"))}
-                                className={cn("w-10", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
+                                style={{ ...headCellStyle(selectionColumnSticky(hasPinned, "header")), paddingInline: cellPadX(density) }}
+                                className={cn("w-10", HEAD_CELL_CLASS)}
                             >
                                 {selection === "multi" && (
                                     <div className="flex items-center justify-center">
@@ -841,8 +864,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                 <th
                                     key={col.id}
                                     scope="col"
-                                    style={headCellStyle({ ...widthStyle, ...pinStyle })}
-                                    className={cn(HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
+                                    style={{ ...headCellStyle({ ...widthStyle, ...pinStyle }), paddingInline: cellPadX(density) }}
+                                    className={cn(HEAD_CELL_CLASS)}
                                 >
                                     <div className={cn("flex items-center gap-1.5", alignClass(col.align))}>
                                         <span className="truncate">{col.header}</span>
@@ -854,8 +877,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                         {showActions && (
                             <th
                                 scope="col"
-                                style={headCellStyle()}
-                                className={cn("w-24", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
+                                style={{ ...headCellStyle(), paddingInline: cellPadX(density) }}
+                                className={cn("w-24", HEAD_CELL_CLASS)}
                             />
                         )}
                     </tr>
@@ -914,11 +937,9 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                         >
                                             {showSelection && (
                                                 <td
-                                                    style={bodyCellStyle(selectionColumnSticky(hasPinned, "cell"))}
+                                                    style={bodyCellStyle(density, selectionColumnSticky(hasPinned, "cell"))}
                                                     className={cn(
                                                         "w-10",
-                                                        DENSITY_CELL_PADDING_X[density],
-                                                        DENSITY_CELL_PADDING_Y[density],
                                                         hasPinned && "mg-pinned-cell",
                                                     )}
                                                 >
@@ -959,11 +980,9 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                             ))}
                                             {showActions && (
                                                 <td
-                                                    style={bodyCellStyle()}
+                                                    style={bodyCellStyle(density)}
                                                     className={cn(
                                                         "w-24 text-end",
-                                                        DENSITY_CELL_PADDING_X[density],
-                                                        DENSITY_CELL_PADDING_Y[density],
                                                     )}
                                                     data-no-row-click
                                                 >
@@ -1023,11 +1042,9 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                 >
                                     {showSelection && (
                                         <td
-                                            style={bodyCellStyle(selectionColumnSticky(hasPinned, "cell"))}
+                                            style={bodyCellStyle(density, selectionColumnSticky(hasPinned, "cell"))}
                                             className={cn(
                                                 "w-10",
-                                                DENSITY_CELL_PADDING_X[density],
-                                                DENSITY_CELL_PADDING_Y[density],
                                                 hasPinned && "mg-pinned-cell",
                                             )}
                                         >
@@ -1068,11 +1085,9 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                     ))}
                                     {showActions && (
                                         <td
-                                            style={bodyCellStyle()}
+                                            style={bodyCellStyle(density)}
                                             className={cn(
                                                 "w-24 text-end",
-                                                DENSITY_CELL_PADDING_X[density],
-                                                DENSITY_CELL_PADDING_Y[density],
                                             )}
                                             data-no-row-click
                                         >
@@ -1175,7 +1190,7 @@ function DataCell<T>({
      */
     defaultVerticalAlign?: "top" | "middle";
 }) {
-    const { Link } = useMicroGridConfig();
+    const { Link, labels } = useMicroGridConfig();
     const value = resolveValue(row, column.accessor);
     const rendered = column.cell ? column.cell(row, value) : ((value as ReactNode) ?? null);
     const href = column.navigateTo?.(row);
@@ -1202,12 +1217,10 @@ function DataCell<T>({
         };
         return (
             <td
-                style={bodyCellStyle(stickyStyle)}
+                style={bodyCellStyle(density, stickyStyle)}
                 className={cn(
                     "bg-background ring-2 ring-inset ring-primary",
                     vAlignCellClass,
-                    DENSITY_CELL_PADDING_X[density],
-                    DENSITY_CELL_PADDING_Y[density],
                 )}
                 data-no-row-click
             >
@@ -1224,22 +1237,30 @@ function DataCell<T>({
 
     const isEmpty = isEmptyContent(href ? display : rendered) && !column.noEmptyDash;
 
+    // §3.1 — the engine's own answer for this cell. Absent ⇒ idle, which is the whole of the previous
+    // behaviour, so a column that does not declare `cellState` renders exactly as before.
+    const meta: MicroCellMeta | undefined = column.cellState?.(row, value);
+    const treatment = meta ? cellStateTreatment(meta.state) : undefined;
+    const editable = column.edit && (!meta || !NON_EDITABLE.has(meta.state));
+
     return (
         <td
-            style={bodyCellStyle({ fontSize: BODY_FS, ...stickyStyle })}
+            {...(meta ? cellStateAria(meta) : {})}
+            data-cell-state={meta?.state}
+            style={bodyCellStyle(density, { fontSize: BODY_FS, ...treatment?.style, ...stickyStyle })}
             className={cn(
                 "text-foreground",
                 vAlignCellClass,
-                DENSITY_CELL_PADDING_X[density],
-                DENSITY_CELL_PADDING_Y[density],
-                !isNavigable && column.edit &&
+                // No ✎ affordance where typing is impossible: a promise that breaks on click is
+                // worse than no promise (§1, readonly / derived / locked).
+                !isNavigable && editable &&
                     "cursor-pointer hover:bg-primary/5 hover:ring-1 hover:ring-inset hover:ring-primary/30",
                 isNavigable && "relative",
                 stickyStyle && "mg-pinned-cell",
             )}
-            title={isNavigable ? titleFromValue(value) : column.edit ? "לחץ לעריכה" : undefined}
+            title={isNavigable ? titleFromValue(value) : editable ? labels.editCell : undefined}
             onClick={
-                !isNavigable && column.edit
+                !isNavigable && editable
                     ? (e) => {
                           e.stopPropagation();
                           onStartEdit();
@@ -1270,13 +1291,45 @@ function DataCell<T>({
                 ) : (
                     rendered
                 )}
-                {href && column.edit && (
+                {treatment?.prefix && (
+                    <span aria-hidden="true" className="me-1.5 flex-none opacity-80">{treatment.prefix}</span>
+                )}
+                {treatment?.suffix && (
+                    <span
+                        aria-hidden="true"
+                        title={meta?.formula}
+                        className="ms-auto flex-none rounded-[5px] px-1.5 text-[11px]"
+                        style={
+                            treatment.suffixTone === "success"
+                                ? { color: "var(--success)", background: "var(--success-soft)", border: "1px solid var(--success)" }
+                                : { color: "var(--muted-foreground)", background: "var(--surface-sunken)", border: "1px dashed var(--input)" }
+                        }
+                    >
+                        {treatment.suffix}
+                    </span>
+                )}
+                {href && editable && (
                     <EditPencilButton
                         onClick={onStartEdit}
                         className="absolute start-1 top-1/2 z-10 -translate-y-1/2 ltr:start-auto ltr:end-1"
                     />
                 )}
             </div>
+            {/* The reason sits UNDER the cell, never in a toast: a toast leaves the cell the user is
+                looking at, and by the time they read it they have lost which row it was about. */}
+            {meta?.reason && treatment?.messageTone && (
+                <div
+                    className="mt-1 flex items-start gap-1.5 rounded-[6px] px-1.5 py-1 text-[11px] leading-[1.45]"
+                    style={{
+                        color: MESSAGE_TONE[treatment.messageTone].fg,
+                        background: MESSAGE_TONE[treatment.messageTone].bg,
+                    }}
+                    role={meta.state === "conflict" ? "alert" : undefined}
+                >
+                    {treatment.messageIcon && <span aria-hidden="true">{treatment.messageIcon}</span>}
+                    <span>{meta.reason}</span>
+                </div>
+            )}
             {editError && (
                 <div className="mt-1 text-xs text-destructive" role="alert">
                     {editError}
@@ -1377,7 +1430,7 @@ function SkeletonRows({
                     style={rowStyle(density, ROW_BG_BASE)}
                 >
                     {Array.from({ length: colSpan }).map((__, ci) => (
-                        <td key={ci} className="px-3" style={bodyCellStyle(pinnedStyles?.[ci])}>
+                        <td key={ci} className="px-3" style={bodyCellStyle(density, pinnedStyles?.[ci])}>
                             <div
                                 className={cn(
                                     "h-3 rounded bg-muted",
@@ -1498,11 +1551,9 @@ function ResponsiveTableLayout<T>({
             >
                 {showSelection && (
                     <td
-                        style={bodyCellStyle()}
+                        style={bodyCellStyle(density)}
                         className={cn(
                             "w-10",
-                            DENSITY_CELL_PADDING_X[density],
-                            DENSITY_CELL_PADDING_Y[density],
                         )}
                     >
                         <div className="flex items-center justify-center">
@@ -1562,11 +1613,9 @@ function ResponsiveTableLayout<T>({
                 )}
                 {showActions && (
                     <td
-                        style={bodyCellStyle()}
+                        style={bodyCellStyle(density)}
                         className={cn(
                             "w-24 text-end",
-                            DENSITY_CELL_PADDING_X[density],
-                            DENSITY_CELL_PADDING_Y[density],
                         )}
                         data-no-row-click
                     >
@@ -1608,8 +1657,8 @@ function ResponsiveTableLayout<T>({
                         {showSelection && (
                             <th
                                 scope="col"
-                                style={headCellStyle()}
-                                className={cn("w-10", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
+                                style={{ ...headCellStyle(), paddingInline: cellPadX(density) }}
+                                className={cn("w-10", HEAD_CELL_CLASS)}
                             >
                                 {selection === "multi" && (
                                     <div className="flex items-center justify-center">
@@ -1633,8 +1682,8 @@ function ResponsiveTableLayout<T>({
                         {showActions && (
                             <th
                                 scope="col"
-                                style={headCellStyle()}
-                                className={cn("w-24", HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
+                                style={{ ...headCellStyle(), paddingInline: cellPadX(density) }}
+                                className={cn("w-24", HEAD_CELL_CLASS)}
                             />
                         )}
                     </tr>
@@ -1693,7 +1742,7 @@ function ResponsiveHeaderCell<T>({
     return (
         <th
             scope="col"
-            style={headCellStyle(
+            style={{ ...headCellStyle(
                 entry.kind === "column" && entry.column.width
                     ? {
                           width:
@@ -1702,8 +1751,8 @@ function ResponsiveHeaderCell<T>({
                                   : entry.column.width,
                       }
                     : undefined,
-            )}
-            className={cn(HEAD_CELL_CLASS, DENSITY_CELL_PADDING_X[density])}
+            ), paddingInline: cellPadX(density) }}
+            className={cn(HEAD_CELL_CLASS)}
         >
             <div className={cn("flex items-center gap-1.5", alignClass(column.align))}>
                 <span className="truncate">{header}</span>
@@ -1743,11 +1792,9 @@ function ResponsiveGroupCell<T>({
     const isInline = group.layout === "inline";
     return (
         <td
-            style={bodyCellStyle()}
+            style={bodyCellStyle(density)}
             className={cn(
                 "align-top text-sm text-foreground",
-                DENSITY_CELL_PADDING_X[density],
-                DENSITY_CELL_PADDING_Y[density],
             )}
         >
             <div className={cn(isInline ? "flex min-w-0 items-start gap-2" : "flex min-w-0 flex-col gap-1")}>
