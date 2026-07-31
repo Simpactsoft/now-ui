@@ -135,6 +135,13 @@ export interface MicroGridLabels {
     stateSaveAsNew: string;
     stateRestore: string;
     editCell: string;
+    /**
+     * Optional on the public label shape for source compatibility with hosts
+     * that supplied a complete pre-0.7 label object. The resolved config always
+     * fills these from the built-in locale.
+     */
+    rowActions?: string;
+    cellChangeError?: string;
     stateDrifted: string;
     stateSave: string;
     stateCancel: string;
@@ -156,12 +163,16 @@ export interface MicroGridConfig {
     densityEventName: string;
 }
 
+type ResolvedMicroGridConfig = Omit<MicroGridConfig, "labels"> & {
+    labels: Required<MicroGridLabels>;
+};
+
 /** Plain anchor — the zero-dependency default. */
 function DefaultLink({ href, prefetch: _prefetch, ...rest }: MicroGridLinkProps) {
     return <a href={href} {...rest} />;
 }
 
-const HE_LABELS: MicroGridLabels = {
+const HE_LABELS: Required<MicroGridLabels> = {
     collapseGroup: "כווץ קבוצה",
     expandGroup: "הרחב קבוצה",
     empty: "אין שורות להצגה",
@@ -253,6 +264,8 @@ const HE_LABELS: MicroGridLabels = {
     stateSaveAsNew: "שמור כחדש",
     stateRestore: "שחזר",
     editCell: "לחץ לעריכה",
+    rowActions: "פעולות",
+    cellChangeError: "שגיאה",
     stateDrifted: "הסינון שונה מהתצוגה השמורה",
     stateSave: "שמור",
     stateCancel: "ביטול",
@@ -263,7 +276,7 @@ const HE_LABELS: MicroGridLabels = {
     viewsSaveCurrent: "שמור סינון נוכחי",
 };
 
-const EN_LABELS: MicroGridLabels = {
+const EN_LABELS: Required<MicroGridLabels> = {
     collapseGroup: "Collapse group",
     expandGroup: "Expand group",
     empty: "No rows to display",
@@ -355,6 +368,8 @@ const EN_LABELS: MicroGridLabels = {
     stateSaveAsNew: "Save as new",
     stateRestore: "Restore",
     editCell: "Click to edit",
+    rowActions: "Actions",
+    cellChangeError: "Error",
     stateDrifted: "The filter differs from the saved view",
     stateSave: "Save",
     stateCancel: "Cancel",
@@ -368,13 +383,13 @@ const EN_LABELS: MicroGridLabels = {
 /** Built-in label sets, so a host with no i18n layer still gets both languages. */
 export const microGridLabels = { he: HE_LABELS, en: EN_LABELS } as const;
 
-export const DEFAULT_MICROGRID_CONFIG: MicroGridConfig = {
+export const DEFAULT_MICROGRID_CONFIG: ResolvedMicroGridConfig = {
     Link: DefaultLink,
     labels: HE_LABELS,
     densityEventName: "appearance:density-change",
 };
 
-const MicroGridConfigContext = createContext<MicroGridConfig>(DEFAULT_MICROGRID_CONFIG);
+const MicroGridConfigContext = createContext<ResolvedMicroGridConfig>(DEFAULT_MICROGRID_CONFIG);
 
 /**
  * What a host may pass. Note `labels` is itself partial: the provider merges
@@ -394,7 +409,7 @@ export function MicroGridConfigProvider({
     value: MicroGridConfigInput;
     children: ReactNode;
 }) {
-    const merged = useMemo<MicroGridConfig>(
+    const merged = useMemo<ResolvedMicroGridConfig>(
         () => ({
             Link: value.Link ?? DEFAULT_MICROGRID_CONFIG.Link,
             labels: { ...DEFAULT_MICROGRID_CONFIG.labels, ...value.labels },
@@ -405,6 +420,6 @@ export function MicroGridConfigProvider({
     return <MicroGridConfigContext.Provider value={merged}>{children}</MicroGridConfigContext.Provider>;
 }
 
-export function useMicroGridConfig(): MicroGridConfig {
+export function useMicroGridConfig(): ResolvedMicroGridConfig {
     return useContext(MicroGridConfigContext);
 }

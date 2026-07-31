@@ -618,7 +618,79 @@ describe("MicroGrid · inline edit", () => {
         await user.clear(input);
         await user.type(input, "Lead{Enter}");
 
-        expect(await screen.findByRole("alert")).toHaveTextContent("Too short");
+        const alert = await screen.findByRole("alert");
+        expect(alert).toHaveTextContent("Too short");
+        expect(alert.closest("td")).toHaveTextContent("Lead");
+    });
+
+    it("keeps the draft visible when onCellChange returns an explicit validation error", async () => {
+        const user = userEvent.setup();
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={editCols}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                onCellChange={() => ({ error: "Use a longer title" })}
+            />,
+        );
+
+        await user.click(screen.getByText("Manager"));
+        const input = screen.getByDisplayValue("Manager");
+        await user.clear(input);
+        await user.type(input, "Lead{Enter}");
+
+        const alert = await screen.findByRole("alert");
+        const cell = alert.closest("td");
+        expect(alert).toHaveTextContent("Use a longer title");
+        expect(cell).toHaveAttribute("data-cell-state", "error");
+        expect(cell).toHaveTextContent("Lead");
+        expect(cell).not.toHaveTextContent("Manager");
+    });
+
+    it("reverts the draft and shows the engine reason when onCellChange is refused", async () => {
+        const user = userEvent.setup();
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={editCols}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                onCellChange={() => ({ refused: "The engine locked this record" })}
+            />,
+        );
+
+        await user.click(screen.getByText("Manager"));
+        const input = screen.getByDisplayValue("Manager");
+        await user.clear(input);
+        await user.type(input, "Director{Enter}");
+
+        const reason = await screen.findByText("The engine locked this record");
+        const cell = reason.closest("td");
+        expect(cell).toHaveAttribute("data-cell-state", "refused");
+        expect(cell).toHaveTextContent("Manager");
+        expect(cell).not.toHaveTextContent("Director");
+    });
+
+    it("surfaces a conflict result without treating it as success", async () => {
+        const user = userEvent.setup();
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={editCols}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                onCellChange={() => ({ conflict: "Another user changed this field" })}
+            />,
+        );
+
+        await user.click(screen.getByText("Manager"));
+        const input = screen.getByDisplayValue("Manager");
+        await user.clear(input);
+        await user.type(input, "Director{Enter}");
+
+        const reason = await screen.findByText("Another user changed this field");
+        expect(reason.closest("td")).toHaveAttribute("data-cell-state", "conflict");
     });
 
     it("skips onCellChange when the value didn't change (blur with no edit)", async () => {
@@ -689,7 +761,14 @@ describe("MicroGrid · inline edit", () => {
 describe("MicroGrid · row actions", () => {
     const actions = (onEdit = vi.fn(), onDelete = vi.fn()): MicroRowAction<Row>[] => [
         { id: "edit", label: "Edit", icon: <span>✎</span>, onClick: onEdit },
-        { id: "delete", label: "Delete", icon: <span>🗑</span>, variant: "destructive", onClick: onDelete },
+        {
+            id: "delete",
+            label: "Delete",
+            icon: <span>🗑</span>,
+            variant: "destructive",
+            confirm: { question: "Delete this row?", cancel: "Keep", confirm: "Confirm delete" },
+            onClick: onDelete,
+        },
     ];
 
     it("renders action buttons with aria-label", () => {
@@ -725,7 +804,7 @@ describe("MicroGrid · row actions", () => {
         expect(onEdit).toHaveBeenCalledWith(ROWS[0]);
     });
 
-    it("destructive action shows inline confirm before firing", async () => {
+    it("an action with confirm shows all three supplied strings before firing", async () => {
         const user = userEvent.setup();
         const onDelete = vi.fn();
         render(
@@ -742,13 +821,16 @@ describe("MicroGrid · row actions", () => {
         // onClick NOT called yet
         expect(onDelete).not.toHaveBeenCalled();
 
-        // Confirm buttons appear
-        const confirmBtn = screen.getByRole("button", { name: "מחק" });
+        expect(screen.getByText("Delete this row?")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Keep" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "מחק" })).not.toBeInTheDocument();
+
+        const confirmBtn = screen.getByRole("button", { name: "Confirm delete" });
         await user.click(confirmBtn);
         expect(onDelete).toHaveBeenCalledWith(ROWS[0]);
     });
 
-    it("destructive cancel returns to actions without firing", async () => {
+    it("confirm cancel returns to actions without firing", async () => {
         const user = userEvent.setup();
         const onDelete = vi.fn();
         render(
@@ -762,11 +844,61 @@ describe("MicroGrid · row actions", () => {
         );
 
         await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
-        const cancelBtn = screen.getByRole("button", { name: "בטל" });
+        const cancelBtn = screen.getByRole("button", { name: "Keep" });
         await user.click(cancelBtn);
 
         expect(onDelete).not.toHaveBeenCalled();
-        expect(screen.queryByRole("button", { name: "מחק" })).not.toBeInTheDocument();
+        expect(screen.queryByText("Delete this row?")).not.toBeInTheDocument();
+    });
+
+    it("opens confirm for a non-destructive action when confirm is supplied", async () => {
+        const user = userEvent.setup();
+        const onDetach = vi.fn();
+        const detach: MicroRowAction<Row> = {
+            id: "detach",
+            label: "Detach",
+            confirm: { question: "לנתק?", cancel: "בטל", confirm: "נתק" },
+            onClick: onDetach,
+        };
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={BASIC_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                rowActions={[detach]}
+            />,
+        );
+
+        await user.click(screen.getAllByRole("button", { name: "Detach" })[0]);
+        expect(onDetach).not.toHaveBeenCalled();
+        expect(screen.getByText("לנתק?")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "נתק" }));
+        expect(onDetach).toHaveBeenCalledWith(ROWS[0]);
+    });
+
+    it("invokes a destructive action immediately when it has no confirm", async () => {
+        const user = userEvent.setup();
+        const onArchive = vi.fn();
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={BASIC_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                rowActions={[
+                    {
+                        id: "archive",
+                        label: "Archive",
+                        variant: "destructive",
+                        onClick: onArchive,
+                    },
+                ]}
+            />,
+        );
+
+        await user.click(screen.getAllByRole("button", { name: "Archive" })[0]);
+        expect(onArchive).toHaveBeenCalledWith(ROWS[0]);
     });
 
     it("respects `show` predicate", () => {
@@ -872,6 +1004,71 @@ describe("MicroGrid · mobile cards", () => {
         );
 
         expect(screen.getByRole("article")).toHaveTextContent("Alice");
+    });
+
+    it("opens row actions and uses the shared confirm flow in the mobile card layout", async () => {
+        const user = userEvent.setup();
+        const onDetach = vi.fn();
+        const onRowClick = vi.fn();
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={BASIC_COLS}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                forceMobile
+                onRowClick={onRowClick}
+                rowActions={[
+                    {
+                        id: "detach",
+                        label: "Detach",
+                        confirm: { question: "לנתק?", cancel: "בטל", confirm: "נתק" },
+                        onClick: onDetach,
+                    },
+                ]}
+            />,
+        );
+
+        const firstCard = screen.getAllByRole("article")[0];
+        await user.click(within(firstCard).getByRole("button", { name: "פעולות" }));
+        await user.click(within(firstCard).getByRole("menuitem", { name: "Detach" }));
+
+        expect(onDetach).not.toHaveBeenCalled();
+        expect(onRowClick).not.toHaveBeenCalled();
+        expect(within(firstCard).getByText("לנתק?")).toBeInTheDocument();
+
+        await user.click(within(firstCard).getByRole("button", { name: "נתק" }));
+        expect(onDetach).toHaveBeenCalledWith(ROWS[0]);
+        expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    it("opens row actions in the responsive mobile card layout", async () => {
+        const user = userEvent.setup();
+        const onInspect = vi.fn();
+        render(
+            <MicroGrid
+                rows={ROWS}
+                columns={BASIC_COLS}
+                responsiveGroups={[
+                    {
+                        id: "person",
+                        layout: "stack",
+                        primaryField: "name",
+                        fields: [{ field: "name", slot: "title" }],
+                    },
+                ]}
+                getRowId={(r) => r.id}
+                ariaLabel="t"
+                forceMobile
+                rowActions={[{ id: "inspect", label: "Inspect", onClick: onInspect }]}
+            />,
+        );
+
+        const firstCard = screen.getAllByRole("article")[0];
+        await user.click(within(firstCard).getByRole("button", { name: "פעולות" }));
+        await user.click(within(firstCard).getByRole("menuitem", { name: "Inspect" }));
+
+        expect(onInspect).toHaveBeenCalledWith(ROWS[0]);
     });
 });
 
@@ -1261,7 +1458,7 @@ describe("MicroGrid · handoff design", () => {
                 density="compact"
             />,
         );
-        expect(screen.getAllByTestId("grid-row")[0].style.height).toBe("var(--rowh, 30px)");
+        expect(screen.getAllByTestId("grid-row")[0].style.height).toBe("var(--rowh, 32px)");
     });
 
     it("§11 skeleton rows keep the frozen columns sticky so the layout does not jump", () => {

@@ -78,12 +78,14 @@ describe("MicroGridConfigProvider · labels", () => {
             </MicroGridConfigProvider>,
         );
         expect(screen.getByText(microGridLabels.en.empty)).toBeInTheDocument();
+        expect(microGridLabels.en.rowActions).toBe("Actions");
+        expect(microGridLabels.en.cellChangeError).toBe("Error");
     });
 });
 
 describe("MicroGridConfigProvider · density event", () => {
-    // Density lands on cell padding (DENSITY_CELL_PADDING_X/Y), not on the table.
-    const cellPadding = () => screen.getAllByRole("cell")[0].className;
+    // Density lands on the --cellpad-backed inline style, not on a utility class.
+    const cellPadding = () => screen.getAllByRole("cell")[0].style.paddingInline;
 
     it("re-reads density when the host-named event fires", () => {
         document.documentElement.dataset.density = "cozy";
@@ -94,20 +96,20 @@ describe("MicroGridConfigProvider · density event", () => {
             </MicroGridConfigProvider>,
         );
 
-        expect(cellPadding()).toContain("px-3");
+        expect(cellPadding()).toBe("var(--cellpad, 12px)");
 
         act(() => {
             document.documentElement.dataset.density = "compact";
             window.dispatchEvent(new Event("skyz:density"));
         });
-        expect(cellPadding()).toContain("px-2");
+        expect(cellPadding()).toBe("var(--cellpad, 8px)");
 
         // The default event name must NOT be listened to once the host renamed it.
         act(() => {
             document.documentElement.dataset.density = "comfortable";
             window.dispatchEvent(new Event("appearance:density-change"));
         });
-        expect(cellPadding()).toContain("px-2");
+        expect(cellPadding()).toBe("var(--cellpad, 8px)");
 
         delete document.documentElement.dataset.density;
     });
@@ -116,13 +118,13 @@ describe("MicroGridConfigProvider · density event", () => {
         document.documentElement.dataset.density = "cozy";
         render(<MicroGrid rows={rows} ariaLabel="אנשים" columns={navigableColumns} getRowId={(r) => r.id} />);
 
-        expect(cellPadding()).toContain("px-3");
+        expect(cellPadding()).toBe("var(--cellpad, 12px)");
 
         act(() => {
             document.documentElement.dataset.density = "compact";
             window.dispatchEvent(new Event("appearance:density-change"));
         });
-        expect(cellPadding()).toContain("px-2");
+        expect(cellPadding()).toBe("var(--cellpad, 8px)");
 
         delete document.documentElement.dataset.density;
     });
