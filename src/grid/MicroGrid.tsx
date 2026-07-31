@@ -15,6 +15,7 @@ import { cn } from "./utils";
 import { useMicroGridConfig } from "./config";
 import { cellStateAria, cellStateTreatment, MESSAGE_TONE, NON_EDITABLE, type MicroCellMeta } from "./cellState";
 import type {
+    MicroCellChangeResult,
     MicroColumn,
     MicroGroup,
     MicroGridDensity,
@@ -127,6 +128,14 @@ function cellPadY(density: MicroGridDensity): string {
 const MEDIUM_RESPONSIVE_FIELD_WIDTH_CLASS = "w-[180px] max-w-[180px]";
 const EMPTY_COLLAPSED_GROUPS = new Set<string>();
 
+type EditFeedback = {
+    rowId: string;
+    columnId: string;
+    meta: MicroCellMeta;
+    /** Local validation keeps the attempted value visible so it can be corrected. */
+    draft?: unknown;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function resolveValue<T>(row: T, accessor: MicroColumn<T>["accessor"]): unknown {
@@ -171,6 +180,24 @@ function alignClass(align: MicroColumn<unknown>["align"]): string {
     if (align === "center") return "text-center justify-center";
     if (align === "end") return "text-end justify-end";
     return "text-start justify-start";
+}
+
+function feedbackFromResult(
+    rowId: string,
+    columnId: string,
+    next: unknown,
+    result: Exclude<MicroCellChangeResult, true>,
+): EditFeedback {
+    if (typeof result === "string") {
+        return { rowId, columnId, meta: { state: "error", reason: result }, draft: next };
+    }
+    if ("error" in result) {
+        return { rowId, columnId, meta: { state: "error", reason: result.error }, draft: next };
+    }
+    if ("refused" in result) {
+        return { rowId, columnId, meta: { state: "refused", reason: result.refused } };
+    }
+    return { rowId, columnId, meta: { state: "conflict", reason: result.conflict } };
 }
 
 // ─── Row background: one inherited custom property ────────────────────────
@@ -585,7 +612,7 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
         warnedGroupsRowsRef.current = true;
     }
     const groupedRows = useMemo(() => visibleGroups(groups, hideEmptyGroups), [groups, hideEmptyGroups]);
-    const { labels: groupToggleLabels } = useMicroGridConfig();
+    const { labels } = useMicroGridConfig();
     const displayRows = useMemo(
         () => groupedRows?.flatMap((group) => (collapsedGroups.has(group.key) ? [] : group.rows)) ?? rows,
         [collapsedGroups, groupedRows, rows],
@@ -617,10 +644,10 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
 
     // Edit state.
     const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null);
-    const [editError, setEditError] = useState<{ rowId: string; columnId: string; message: string } | null>(null);
+    const [editFeedback, setEditFeedback] = useState<EditFeedback | null>(null);
 
-    // Destructive-confirm state.
-    const [confirmingDelete, setConfirmingDelete] = useState<{ rowId: string; actionId: string } | null>(null);
+    // Per-action confirmation state. `variant` controls tone only; `confirm` controls behaviour.
+    const [confirmingAction, setConfirmingAction] = useState<{ rowId: string; actionId: string } | null>(null);
 
     // Anchor for shift-range selection.
     const lastSelectedRef = useRef<string | null>(null);
@@ -678,22 +705,26 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
             if (!onCellChange) return;
             try {
                 const res = await onCellChange(rowId, columnId, next);
-                if (typeof res === "string") {
-                    setEditError({ rowId, columnId, message: res });
+                if (res !== undefined && res !== true) {
+                    setEditFeedback(feedbackFromResult(rowId, columnId, next, res));
                 } else {
-                    setEditError((prev) =>
+                    setEditFeedback((prev) =>
                         prev && prev.rowId === rowId && prev.columnId === columnId ? null : prev,
                     );
                 }
             } catch (err) {
-                setEditError({
+                setEditFeedback({
                     rowId,
                     columnId,
-                    message: err instanceof Error ? err.message : "שגיאה",
+                    meta: {
+                        state: "error",
+                        reason: err instanceof Error ? err.message : labels.cellChangeError,
+                    },
+                    draft: next,
                 });
             }
         },
-        [onCellChange],
+        [labels.cellChangeError, onCellChange],
     );
 
     const cancelEdit = useCallback(() => setEditingCell(null), []);
@@ -701,14 +732,14 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
     // ─── Row-action handlers. ───
     const handleActionClick = useCallback(
         (action: MicroRowAction<T>, row: T, rowId: string) => {
-            if (action.variant === "destructive" && confirmingDelete?.rowId !== rowId) {
-                setConfirmingDelete({ rowId, actionId: action.id });
+            if (action.confirm) {
+                setConfirmingAction({ rowId, actionId: action.id });
                 return;
             }
-            setConfirmingDelete(null);
+            setConfirmingAction(null);
             action.onClick?.(row);
         },
-        [confirmingDelete],
+        [],
     );
 
     // ─── Render. ───
@@ -719,8 +750,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 groups={groupedRows}
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={onToggleGroup}
-                collapseGroupLabel={groupToggleLabels.collapseGroup}
-                expandGroupLabel={groupToggleLabels.expandGroup}
+                collapseGroupLabel={labels.collapseGroup}
+                expandGroupLabel={labels.expandGroup}
                 responsiveColumns={responsiveColumns}
                 getRowId={getRowId}
                 ariaLabel={ariaLabel}
@@ -734,10 +765,13 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 emptyMessage={emptyMessage}
                 className={className}
                 editingCell={editingCell}
-                editError={editError}
+                editFeedback={editFeedback}
                 onStartEdit={(rowId, columnId) => setEditingCell({ rowId, columnId })}
                 onCommit={commitEdit}
                 onCancel={cancelEdit}
+                confirmingAction={confirmingAction}
+                setConfirmingAction={setConfirmingAction}
+                handleActionClick={handleActionClick}
             />
         );
     }
@@ -749,8 +783,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 groups={groupedRows}
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={onToggleGroup}
-                collapseGroupLabel={groupToggleLabels.collapseGroup}
-                expandGroupLabel={groupToggleLabels.expandGroup}
+                collapseGroupLabel={labels.collapseGroup}
+                expandGroupLabel={labels.expandGroup}
                 columns={effectiveColumns}
                 getRowId={getRowId}
                 ariaLabel={ariaLabel}
@@ -763,6 +797,9 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 emptyState={emptyState}
                 emptyMessage={emptyMessage}
                 className={className}
+                confirmingAction={confirmingAction}
+                setConfirmingAction={setConfirmingAction}
+                handleActionClick={handleActionClick}
             />
         );
     }
@@ -776,8 +813,8 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 groups={groupedRows}
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={onToggleGroup}
-                collapseGroupLabel={groupToggleLabels.collapseGroup}
-                expandGroupLabel={groupToggleLabels.expandGroup}
+                collapseGroupLabel={labels.collapseGroup}
+                expandGroupLabel={labels.expandGroup}
                 responsiveColumns={responsiveColumns}
                 getRowId={getRowId}
                 ariaLabel={ariaLabel}
@@ -800,12 +837,12 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                 showSelection={showSelection}
                 showActions={showActions}
                 editingCell={editingCell}
-                editError={editError}
+                editFeedback={editFeedback}
                 onStartEdit={(rowId, columnId) => setEditingCell({ rowId, columnId })}
                 onCommit={commitEdit}
                 onCancel={cancelEdit}
-                confirmingDelete={confirmingDelete}
-                setConfirmingDelete={setConfirmingDelete}
+                confirmingAction={confirmingAction}
+                setConfirmingAction={setConfirmingAction}
                 handleActionClick={handleActionClick}
             />
         );
@@ -907,7 +944,7 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                             colSpan={colSpan}
                                             collapsed={isCollapsed}
                                             onToggle={() => onToggleGroup?.(group.key)}
-                                            toggleLabel={isCollapsed ? groupToggleLabels.expandGroup : groupToggleLabels.collapseGroup}
+                                            toggleLabel={isCollapsed ? labels.expandGroup : labels.collapseGroup}
                                         />
                                     );
                                 })()}
@@ -916,7 +953,14 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                     const selected = selectedSet.has(id);
                                     const isActive = activeRowId != null && activeRowId === id;
                                     const tone = getRowTone?.(row);
-                                    const confirming = confirmingDelete?.rowId === id;
+                                    const confirmedAction =
+                                        confirmingAction?.rowId === id
+                                            ? rowActions?.find(
+                                                  (action) =>
+                                                      action.id === confirmingAction.actionId &&
+                                                      action.confirm,
+                                              )
+                                            : undefined;
                                     return (
                                         <tr
                                             key={id}
@@ -966,9 +1010,10 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                                     isEditing={
                                                         editingCell?.rowId === id && editingCell?.columnId === col.id
                                                     }
-                                                    editError={
-                                                        editError?.rowId === id && editError?.columnId === col.id
-                                                            ? editError.message
+                                                    editFeedback={
+                                                        editFeedback?.rowId === id &&
+                                                        editFeedback?.columnId === col.id
+                                                            ? editFeedback
                                                             : undefined
                                                     }
                                                     onStartEdit={() => col.edit && setEditingCell({ rowId: id, columnId: col.id })}
@@ -986,15 +1031,13 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                                     )}
                                                     data-no-row-click
                                                 >
-                                                    {confirming ? (
+                                                    {confirmedAction?.confirm ? (
                                                         <InlineConfirm
-                                                            onCancel={() => setConfirmingDelete(null)}
+                                                            labels={confirmedAction.confirm}
+                                                            onCancel={() => setConfirmingAction(null)}
                                                             onConfirm={() => {
-                                                                const action = rowActions!.find(
-                                                                    (a) => a.id === confirmingDelete!.actionId,
-                                                                );
-                                                                setConfirmingDelete(null);
-                                                                action?.onClick?.(row);
+                                                                setConfirmingAction(null);
+                                                                confirmedAction.onClick?.(row);
                                                             }}
                                                         />
                                                     ) : (
@@ -1021,7 +1064,14 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                             const selected = selectedSet.has(id);
                             const isActive = activeRowId != null && activeRowId === id;
                             const tone = getRowTone?.(row);
-                            const confirming = confirmingDelete?.rowId === id;
+                            const confirmedAction =
+                                confirmingAction?.rowId === id
+                                    ? rowActions?.find(
+                                          (action) =>
+                                              action.id === confirmingAction.actionId &&
+                                              action.confirm,
+                                      )
+                                    : undefined;
                             return (
                                 <tr
                                     key={id}
@@ -1071,9 +1121,10 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                             isEditing={
                                                 editingCell?.rowId === id && editingCell?.columnId === col.id
                                             }
-                                            editError={
-                                                editError?.rowId === id && editError?.columnId === col.id
-                                                    ? editError.message
+                                            editFeedback={
+                                                editFeedback?.rowId === id &&
+                                                editFeedback?.columnId === col.id
+                                                    ? editFeedback
                                                     : undefined
                                             }
                                             onStartEdit={() => col.edit && setEditingCell({ rowId: id, columnId: col.id })}
@@ -1091,15 +1142,13 @@ export function MicroGrid<T>(props: MicroGridProps<T>) {
                                             )}
                                             data-no-row-click
                                         >
-                                            {confirming ? (
+                                            {confirmedAction?.confirm ? (
                                                 <InlineConfirm
-                                                    onCancel={() => setConfirmingDelete(null)}
+                                                    labels={confirmedAction.confirm}
+                                                    onCancel={() => setConfirmingAction(null)}
                                                     onConfirm={() => {
-                                                        const action = rowActions!.find(
-                                                            (a) => a.id === confirmingDelete!.actionId,
-                                                        );
-                                                        setConfirmingDelete(null);
-                                                        action?.onClick?.(row);
+                                                        setConfirmingAction(null);
+                                                        confirmedAction.onClick?.(row);
                                                     }}
                                                 />
                                             ) : (
@@ -1162,7 +1211,7 @@ function DataCell<T>({
     row,
     density,
     isEditing,
-    editError,
+    editFeedback,
     onStartEdit,
     onCommit,
     onCancel,
@@ -1175,7 +1224,7 @@ function DataCell<T>({
     row: T;
     density: MicroGridDensity;
     isEditing: boolean;
-    editError: string | undefined;
+    editFeedback: EditFeedback | undefined;
     onStartEdit: () => void;
     onCommit: (next: unknown) => void;
     onCancel: () => void;
@@ -1191,7 +1240,8 @@ function DataCell<T>({
     defaultVerticalAlign?: "top" | "middle";
 }) {
     const { Link, labels } = useMicroGridConfig();
-    const value = resolveValue(row, column.accessor);
+    const sourceValue = resolveValue(row, column.accessor);
+    const value = editFeedback && "draft" in editFeedback ? editFeedback.draft : sourceValue;
     const rendered = column.cell ? column.cell(row, value) : ((value as ReactNode) ?? null);
     const href = column.navigateTo?.(row);
     const isNavigable = !!href;
@@ -1239,7 +1289,7 @@ function DataCell<T>({
 
     // §3.1 — the engine's own answer for this cell. Absent ⇒ idle, which is the whole of the previous
     // behaviour, so a column that does not declare `cellState` renders exactly as before.
-    const meta: MicroCellMeta | undefined = column.cellState?.(row, value);
+    const meta: MicroCellMeta | undefined = editFeedback?.meta ?? column.cellState?.(row, sourceValue);
     const treatment = meta ? cellStateTreatment(meta.state) : undefined;
     const editable = column.edit && (!meta || !NON_EDITABLE.has(meta.state));
 
@@ -1324,15 +1374,10 @@ function DataCell<T>({
                         color: MESSAGE_TONE[treatment.messageTone].fg,
                         background: MESSAGE_TONE[treatment.messageTone].bg,
                     }}
-                    role={meta.state === "conflict" ? "alert" : undefined}
+                    role={meta.state === "error" || meta.state === "conflict" ? "alert" : undefined}
                 >
                     {treatment.messageIcon && <span aria-hidden="true">{treatment.messageIcon}</span>}
                     <span>{meta.reason}</span>
-                </div>
-            )}
-            {editError && (
-                <div className="mt-1 text-xs text-destructive" role="alert">
-                    {editError}
                 </div>
             )}
         </td>
@@ -1376,9 +1421,18 @@ function RowActions<T>({
     );
 }
 
-function InlineConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function InlineConfirm({
+    labels,
+    onConfirm,
+    onCancel,
+}: {
+    labels: NonNullable<MicroRowAction<unknown>["confirm"]>;
+    onConfirm: () => void;
+    onCancel: () => void;
+}) {
     return (
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <span className="text-xs text-foreground">{labels.question}</span>
             <button
                 type="button"
                 onClick={(e) => {
@@ -1387,7 +1441,7 @@ function InlineConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCance
                 }}
                 className="rounded-md border border-border bg-background px-2 py-1 text-xs outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary"
             >
-                בטל
+                {labels.cancel}
             </button>
             <button
                 type="button"
@@ -1397,8 +1451,96 @@ function InlineConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCance
                 }}
                 className="rounded-md bg-destructive px-2 py-1 text-xs text-destructive-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary"
             >
-                מחק
+                {labels.confirm}
             </button>
+        </div>
+    );
+}
+
+function MobileRowActions<T>({
+    actions,
+    row,
+    rowId,
+    confirmingAction,
+    setConfirmingAction,
+    onActionClick,
+}: {
+    actions: MicroRowAction<T>[] | undefined;
+    row: T;
+    rowId: string;
+    confirmingAction: { rowId: string; actionId: string } | null;
+    setConfirmingAction: (next: { rowId: string; actionId: string } | null) => void;
+    onActionClick: (action: MicroRowAction<T>, row: T, rowId: string) => void;
+}) {
+    const { labels } = useMicroGridConfig();
+    const [open, setOpen] = useState(false);
+    const visibleActions = actions?.filter((action) => !action.show || action.show(row)) ?? [];
+    if (visibleActions.length === 0) return null;
+
+    const confirmedAction =
+        confirmingAction?.rowId === rowId
+            ? visibleActions.find(
+                  (action) => action.id === confirmingAction.actionId && action.confirm,
+              )
+            : undefined;
+
+    return (
+        <div className="relative shrink-0" data-no-row-click>
+            <button
+                type="button"
+                aria-label={labels.rowActions}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    setOpen((current) => !current);
+                }}
+                className="rounded-md p-1.5 text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary"
+            >
+                <MoreHorizontal className="h-4 w-4" aria-hidden />
+            </button>
+            {open && (
+                <div
+                    role="menu"
+                    aria-label={labels.rowActions}
+                    className="absolute end-0 top-full z-20 mt-1 min-w-48 rounded-lg border border-border bg-card p-1.5 shadow-lg"
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    {confirmedAction?.confirm ? (
+                        <InlineConfirm
+                            labels={confirmedAction.confirm}
+                            onCancel={() => setConfirmingAction(null)}
+                            onConfirm={() => {
+                                setConfirmingAction(null);
+                                setOpen(false);
+                                confirmedAction.onClick?.(row);
+                            }}
+                        />
+                    ) : (
+                        visibleActions.map((action) => (
+                            <button
+                                key={action.id}
+                                type="button"
+                                role="menuitem"
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    onActionClick(action, row, rowId);
+                                    if (!action.confirm) setOpen(false);
+                                }}
+                                className={cn(
+                                    "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary",
+                                    action.variant === "destructive"
+                                        ? "text-destructive"
+                                        : "text-foreground",
+                                )}
+                            >
+                                {action.icon}
+                                <span>{action.label}</span>
+                            </button>
+                        ))
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -1476,12 +1618,12 @@ function ResponsiveTableLayout<T>({
     showSelection,
     showActions,
     editingCell,
-    editError,
+    editFeedback,
     onStartEdit,
     onCommit,
     onCancel,
-    confirmingDelete,
-    setConfirmingDelete,
+    confirmingAction,
+    setConfirmingAction,
     handleActionClick,
 }: {
     rows: T[];
@@ -1512,12 +1654,12 @@ function ResponsiveTableLayout<T>({
     showSelection: boolean;
     showActions: boolean;
     editingCell: { rowId: string; columnId: string } | null;
-    editError: { rowId: string; columnId: string; message: string } | null;
+    editFeedback: EditFeedback | null;
     onStartEdit: (rowId: string, columnId: string) => void;
     onCommit: (rowId: string, columnId: string, next: unknown) => void;
     onCancel: () => void;
-    confirmingDelete: { rowId: string; actionId: string } | null;
-    setConfirmingDelete: (next: { rowId: string; actionId: string } | null) => void;
+    confirmingAction: { rowId: string; actionId: string } | null;
+    setConfirmingAction: (next: { rowId: string; actionId: string } | null) => void;
     handleActionClick: (action: MicroRowAction<T>, row: T, rowId: string) => void;
 }) {
     const tableColumns = [
@@ -1530,7 +1672,12 @@ function ResponsiveTableLayout<T>({
         const selected = selectedSet.has(id);
         const isActive = activeRowId != null && activeRowId === id;
         const tone = getRowTone?.(row);
-        const confirming = confirmingDelete?.rowId === id;
+        const confirmedAction =
+            confirmingAction?.rowId === id
+                ? rowActions?.find(
+                      (action) => action.id === confirmingAction.actionId && action.confirm,
+                  )
+                : undefined;
         return (
             <tr
                 key={id}
@@ -1578,7 +1725,7 @@ function ResponsiveTableLayout<T>({
                             group={entry.group}
                             density={density}
                             editingCell={editingCell}
-                            editError={editError}
+                            editFeedback={editFeedback}
                             onStartEdit={onStartEdit}
                             onCommit={onCommit}
                             onCancel={onCancel}
@@ -1596,9 +1743,10 @@ function ResponsiveTableLayout<T>({
                                 editingCell?.rowId === id &&
                                 editingCell?.columnId === entry.column.id
                             }
-                            editError={
-                                editError?.rowId === id && editError?.columnId === entry.column.id
-                                    ? editError.message
+                            editFeedback={
+                                editFeedback?.rowId === id &&
+                                editFeedback?.columnId === entry.column.id
+                                    ? editFeedback
                                     : undefined
                             }
                             onStartEdit={() =>
@@ -1619,15 +1767,13 @@ function ResponsiveTableLayout<T>({
                         )}
                         data-no-row-click
                     >
-                        {confirming ? (
+                        {confirmedAction?.confirm ? (
                             <InlineConfirm
-                                onCancel={() => setConfirmingDelete(null)}
+                                labels={confirmedAction.confirm}
+                                onCancel={() => setConfirmingAction(null)}
                                 onConfirm={() => {
-                                    const action = rowActions!.find(
-                                        (a) => a.id === confirmingDelete!.actionId,
-                                    );
-                                    setConfirmingDelete(null);
-                                    action?.onClick?.(row);
+                                    setConfirmingAction(null);
+                                    confirmedAction.onClick?.(row);
                                 }}
                             />
                         ) : (
@@ -1770,7 +1916,7 @@ function ResponsiveGroupCell<T>({
     group,
     density,
     editingCell,
-    editError,
+    editFeedback,
     onStartEdit,
     onCommit,
     onCancel,
@@ -1782,7 +1928,7 @@ function ResponsiveGroupCell<T>({
     group: ResolvedResponsiveColumn<T>;
     density: MicroGridDensity;
     editingCell: { rowId: string; columnId: string } | null;
-    editError: { rowId: string; columnId: string; message: string } | null;
+    editFeedback: EditFeedback | null;
     onStartEdit: (rowId: string, columnId: string) => void;
     onCommit: (rowId: string, columnId: string, next: unknown) => void;
     onCancel: () => void;
@@ -1812,7 +1958,7 @@ function ResponsiveGroupCell<T>({
                             rowId={rowId}
                             field={field}
                             editingCell={editingCell}
-                            editError={editError}
+                            editFeedback={editFeedback}
                             onStartEdit={onStartEdit}
                             onCommit={onCommit}
                             onCancel={onCancel}
@@ -1832,7 +1978,7 @@ function ResponsiveField<T>({
     rowId,
     field,
     editingCell,
-    editError,
+    editFeedback,
     onStartEdit,
     onCommit,
     onCancel,
@@ -1845,7 +1991,7 @@ function ResponsiveField<T>({
     rowId: string;
     field: ResolvedResponsiveField<T>;
     editingCell: { rowId: string; columnId: string } | null;
-    editError: { rowId: string; columnId: string; message: string } | null;
+    editFeedback: EditFeedback | null;
     onStartEdit: (rowId: string, columnId: string) => void;
     onCommit: (rowId: string, columnId: string, next: unknown) => void;
     onCancel: () => void;
@@ -1854,15 +2000,21 @@ function ResponsiveField<T>({
     showLabel?: boolean;
     constrainForMedium?: boolean;
 }) {
-    const { Link } = useMicroGridConfig();
-    const value = resolveValue(row, field.column.accessor);
+    const { Link, labels } = useMicroGridConfig();
+    const sourceValue = resolveValue(row, field.column.accessor);
+    const feedback =
+        editFeedback?.rowId === rowId && editFeedback?.columnId === field.column.id
+            ? editFeedback
+            : undefined;
+    const value = feedback && "draft" in feedback ? feedback.draft : sourceValue;
     const rendered = field.column.cell ? field.column.cell(row, value) : ((value as ReactNode) ?? null);
     const href = field.column.navigateTo?.(row);
     const isNavigable = !!href;
     const display = isNavigable ? navigableDisplayValue(value) : rendered;
     const isEditing = editingCell?.rowId === rowId && editingCell?.columnId === field.column.id;
-    const message =
-        editError?.rowId === rowId && editError?.columnId === field.column.id ? editError.message : undefined;
+    const meta = feedback?.meta ?? field.column.cellState?.(row, sourceValue);
+    const treatment = meta ? cellStateTreatment(meta.state) : undefined;
+    const editable = field.column.edit && (!meta || !NON_EDITABLE.has(meta.state));
     const label = field.label ?? field.column.header;
     const shouldShowLabel = showLabel && !field.hideLabel;
     const valueTitle = constrainForMedium ? titleFromValue(value) : undefined;
@@ -1893,6 +2045,7 @@ function ResponsiveField<T>({
 
     return (
         <div
+            {...(meta ? cellStateAria(meta) : {})}
             className={cn(
                 "min-w-0 rounded-sm",
                 constrainForMedium && [
@@ -1904,12 +2057,14 @@ function ResponsiveField<T>({
                     "group-hover:[&_.cell-action-panel]:!opacity-100 group-focus-within:[&_.cell-action-panel]:!opacity-100",
                     "group-hover:[&_.cell-action-panel]:!pointer-events-auto group-focus-within:[&_.cell-action-panel]:!pointer-events-auto",
                 ],
-                !isNavigable && field.column.edit &&
+                !isNavigable && editable &&
                     "cursor-pointer hover:bg-primary/5 hover:ring-1 hover:ring-inset hover:ring-primary/30",
             )}
-            title={isNavigable ? titleFromValue(value) : valueTitle ?? (field.column.edit ? "לחץ לעריכה" : undefined)}
+            data-cell-state={meta?.state}
+            style={treatment?.style}
+            title={isNavigable ? titleFromValue(value) : valueTitle ?? (editable ? labels.editCell : undefined)}
             onClick={
-                !isNavigable && field.column.edit
+                !isNavigable && editable
                     ? (e) => {
                           e.stopPropagation();
                           onStartEdit(rowId, field.column.id);
@@ -1940,16 +2095,51 @@ function ResponsiveField<T>({
                 ) : (
                     rendered
                 )}
-                {href && field.column.edit && (
+                {treatment?.prefix && (
+                    <span aria-hidden="true" className="me-1.5 flex-none opacity-80">
+                        {treatment.prefix}
+                    </span>
+                )}
+                {treatment?.suffix && (
+                    <span
+                        aria-hidden="true"
+                        title={meta?.formula}
+                        className="ms-auto flex-none rounded-[5px] px-1.5 text-[11px]"
+                        style={
+                            treatment.suffixTone === "success"
+                                ? {
+                                      color: "var(--success)",
+                                      background: "var(--success-soft)",
+                                      border: "1px solid var(--success)",
+                                  }
+                                : {
+                                      color: "var(--muted-foreground)",
+                                      background: "var(--surface-sunken)",
+                                      border: "1px dashed var(--input)",
+                                  }
+                        }
+                    >
+                        {treatment.suffix}
+                    </span>
+                )}
+                {href && editable && (
                     <EditPencilButton
                         onClick={() => onStartEdit(rowId, field.column.id)}
                         className="absolute start-0 top-1/2 z-10 -translate-y-1/2 ltr:start-auto ltr:end-0"
                     />
                 )}
             </div>
-            {message && (
-                <div className="mt-1 text-xs text-destructive" role="alert">
-                    {message}
+            {meta?.reason && treatment?.messageTone && (
+                <div
+                    className="mt-1 flex items-start gap-1.5 rounded-[6px] px-1.5 py-1 text-[11px] leading-[1.45]"
+                    style={{
+                        color: MESSAGE_TONE[treatment.messageTone].fg,
+                        background: MESSAGE_TONE[treatment.messageTone].bg,
+                    }}
+                    role={meta.state === "error" || meta.state === "conflict" ? "alert" : undefined}
+                >
+                    {treatment.messageIcon && <span aria-hidden="true">{treatment.messageIcon}</span>}
+                    <span>{meta.reason}</span>
                 </div>
             )}
         </div>
@@ -1976,10 +2166,13 @@ function ResponsiveMobileLayout<T>({
     emptyMessage,
     className,
     editingCell,
-    editError,
+    editFeedback,
     onStartEdit,
     onCommit,
     onCancel,
+    confirmingAction,
+    setConfirmingAction,
+    handleActionClick,
 }: {
     rows: T[];
     groups: MicroGroup<T>[] | null;
@@ -2000,10 +2193,13 @@ function ResponsiveMobileLayout<T>({
     emptyMessage?: string;
     className?: string;
     editingCell: { rowId: string; columnId: string } | null;
-    editError: { rowId: string; columnId: string; message: string } | null;
+    editFeedback: EditFeedback | null;
     onStartEdit: (rowId: string, columnId: string) => void;
     onCommit: (rowId: string, columnId: string, next: unknown) => void;
     onCancel: () => void;
+    confirmingAction: { rowId: string; actionId: string } | null;
+    setConfirmingAction: (next: { rowId: string; actionId: string } | null) => void;
+    handleActionClick: (action: MicroRowAction<T>, row: T, rowId: string) => void;
 }) {
     if (loading) {
         return (
@@ -2035,8 +2231,11 @@ function ResponsiveMobileLayout<T>({
                 onToggleRow={onToggleRow}
                 rowActions={rowActions}
                 onRowClick={onRowClick}
+                confirmingAction={confirmingAction}
+                setConfirmingAction={setConfirmingAction}
+                handleActionClick={handleActionClick}
                 editingCell={editingCell}
-                editError={editError}
+                editFeedback={editFeedback}
                 onStartEdit={onStartEdit}
                 onCommit={onCommit}
                 onCancel={onCancel}
@@ -2090,8 +2289,11 @@ function ResponsiveMobileCard<T>({
     onToggleRow,
     rowActions,
     onRowClick,
+    confirmingAction,
+    setConfirmingAction,
+    handleActionClick,
     editingCell,
-    editError,
+    editFeedback,
     onStartEdit,
     onCommit,
     onCancel,
@@ -2104,8 +2306,11 @@ function ResponsiveMobileCard<T>({
     onToggleRow: (rowId: string, shift: boolean) => void;
     rowActions?: MicroRowAction<T>[];
     onRowClick?: (row: T) => void;
+    confirmingAction: { rowId: string; actionId: string } | null;
+    setConfirmingAction: (next: { rowId: string; actionId: string } | null) => void;
+    handleActionClick: (action: MicroRowAction<T>, row: T, rowId: string) => void;
     editingCell: { rowId: string; columnId: string } | null;
-    editError: { rowId: string; columnId: string; message: string } | null;
+    editFeedback: EditFeedback | null;
     onStartEdit: (rowId: string, columnId: string) => void;
     onCommit: (rowId: string, columnId: string, next: unknown) => void;
     onCancel: () => void;
@@ -2153,7 +2358,7 @@ function ResponsiveMobileCard<T>({
                                 rowId={rowId}
                                 field={titleField}
                                 editingCell={editingCell}
-                                editError={editError}
+                                editFeedback={editFeedback}
                                 onStartEdit={onStartEdit}
                                 onCommit={onCommit}
                                 onCancel={onCancel}
@@ -2170,7 +2375,7 @@ function ResponsiveMobileCard<T>({
                                     rowId={rowId}
                                     field={field}
                                     editingCell={editingCell}
-                                    editError={editError}
+                                    editFeedback={editFeedback}
                                     onStartEdit={onStartEdit}
                                     onCommit={onCommit}
                                     onCancel={onCancel}
@@ -2180,16 +2385,14 @@ function ResponsiveMobileCard<T>({
                         </div>
                     )}
                 </div>
-                {rowActions && rowActions.length > 0 && (
-                    <button
-                        type="button"
-                        aria-label="פעולות"
-                        onClick={(e) => e.stopPropagation()}
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-                    >
-                        <MoreHorizontal className="h-4 w-4" aria-hidden />
-                    </button>
-                )}
+                <MobileRowActions
+                    actions={rowActions}
+                    row={row}
+                    rowId={rowId}
+                    confirmingAction={confirmingAction}
+                    setConfirmingAction={setConfirmingAction}
+                    onActionClick={handleActionClick}
+                />
             </div>
             <div className="mt-3 space-y-3 border-t border-border/60 pt-2 text-xs">
                 {responsiveColumns.grouped.map((group) => {
@@ -2208,7 +2411,7 @@ function ResponsiveMobileCard<T>({
                                         rowId={rowId}
                                         field={field}
                                         editingCell={editingCell}
-                                        editError={editError}
+                                        editFeedback={editFeedback}
                                         onStartEdit={onStartEdit}
                                         onCommit={onCommit}
                                         onCancel={onCancel}
@@ -2227,7 +2430,7 @@ function ResponsiveMobileCard<T>({
                                 rowId={rowId}
                                 field={field}
                                 editingCell={editingCell}
-                                editError={editError}
+                                editFeedback={editFeedback}
                                 onStartEdit={onStartEdit}
                                 onCommit={onCommit}
                                 onCancel={onCancel}
@@ -2261,6 +2464,9 @@ function MobileLayout<T>({
     emptyState,
     emptyMessage,
     className,
+    confirmingAction,
+    setConfirmingAction,
+    handleActionClick,
 }: {
     rows: T[];
     groups: MicroGroup<T>[] | null;
@@ -2280,6 +2486,9 @@ function MobileLayout<T>({
     emptyState?: ReactNode;
     emptyMessage?: string;
     className?: string;
+    confirmingAction: { rowId: string; actionId: string } | null;
+    setConfirmingAction: (next: { rowId: string; actionId: string } | null) => void;
+    handleActionClick: (action: MicroRowAction<T>, row: T, rowId: string) => void;
 }) {
     if (loading) {
         return (
@@ -2316,6 +2525,9 @@ function MobileLayout<T>({
                 onToggleRow={onToggleRow}
                 rowActions={rowActions}
                 onRowClick={onRowClick}
+                confirmingAction={confirmingAction}
+                setConfirmingAction={setConfirmingAction}
+                handleActionClick={handleActionClick}
             />
         );
     };
@@ -2368,6 +2580,9 @@ function MobileCard<T>({
     onToggleRow,
     rowActions,
     onRowClick,
+    confirmingAction,
+    setConfirmingAction,
+    handleActionClick,
 }: {
     row: T;
     rowId: string;
@@ -2379,6 +2594,9 @@ function MobileCard<T>({
     onToggleRow: (rowId: string, shift: boolean) => void;
     rowActions?: MicroRowAction<T>[];
     onRowClick?: (row: T) => void;
+    confirmingAction: { rowId: string; actionId: string } | null;
+    setConfirmingAction: (next: { rowId: string; actionId: string } | null) => void;
+    handleActionClick: (action: MicroRowAction<T>, row: T, rowId: string) => void;
 }) {
     return (
         <li
@@ -2416,16 +2634,14 @@ function MobileCard<T>({
                         </div>
                     )}
                 </div>
-                {rowActions && rowActions.length > 0 && (
-                    <button
-                        type="button"
-                        aria-label="פעולות"
-                        onClick={(e) => e.stopPropagation()}
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-                    >
-                        <MoreHorizontal className="h-4 w-4" aria-hidden />
-                    </button>
-                )}
+                <MobileRowActions
+                    actions={rowActions}
+                    row={row}
+                    rowId={rowId}
+                    confirmingAction={confirmingAction}
+                    setConfirmingAction={setConfirmingAction}
+                    onActionClick={handleActionClick}
+                />
             </div>
             {detailCols.length > 0 && (
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-border/60 pt-2 text-xs">

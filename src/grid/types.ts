@@ -142,6 +142,20 @@ export interface MicroRowAction<T> {
     confirm?: { question: string; cancel: string; confirm: string };
 }
 
+/**
+ * The host's answer to an inline cell commit.
+ *
+ * `string` is retained as a compatibility alias for `{ error: string }`.
+ * New hosts should return the explicit object forms so the grid can distinguish
+ * local validation from an engine refusal or a concurrent-write conflict.
+ */
+export type MicroCellChangeResult =
+    | true
+    | string
+    | { error: string }
+    | { refused: string }
+    | { conflict: string };
+
 export interface MicroGroup<T> {
     /** Stable group identifier — used for React keys + future collapse state. */
     key: string;
@@ -214,12 +228,15 @@ export interface MicroGridProps<T> {
     onSelectionChange?: (ids: string[]) => void;
 
     // ── Inline edit ───────────────────────────────────────────────────────
-    /** Called when a cell edit commits. Return a string to display as an error. */
+    /**
+     * Called when a cell edit commits. A legacy string is treated as a local
+     * validation error; explicit object results preserve the result's meaning.
+     */
     onCellChange?: (
         rowId: string,
         columnId: string,
         next: unknown,
-    ) => void | true | string | Promise<void | true | string>;
+    ) => void | MicroCellChangeResult | Promise<void | MicroCellChangeResult>;
 
     // ── Row actions & interactions ────────────────────────────────────────
     rowActions?: MicroRowAction<T>[];

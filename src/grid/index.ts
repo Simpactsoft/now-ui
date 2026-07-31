@@ -20,6 +20,7 @@ export { resolveResponsiveColumns } from "./responsiveGroups";
 export { bucketRows, NULL_GROUP_KEY, NULL_GROUP_LABEL } from "./bucketRows";
 export type {
     MicroColumn,
+    MicroCellChangeResult,
     MicroEditConfig,
     MicroEditOption,
     MicroGroup,
