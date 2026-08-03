@@ -1606,13 +1606,20 @@ export function DraggablePanels({ panels: initialPanels, storageKey, templatesKe
     useEffect(() => {
         const el = gridElRef.current;
         if (!el) return;
-        // ResizeObserver fires once on observe(), so no synchronous seed needed.
+        const apply = (w: number) => setGridWidth((prev) => (Math.abs(prev - w) < 1 ? prev : w));
+        // Synchronous seed: the observer's initial delivery lands a frame late (and some embedded
+        // browser surfaces never deliver at all) — without the seed the first paint renders
+        // UNclamped spans, which at narrow widths means overlapping panels.
+        apply(el.clientWidth);
         const ro = new ResizeObserver((entries) => {
-            const w = entries[0]?.contentRect.width ?? 0;
-            setGridWidth((prev) => (Math.abs(prev - w) < 1 ? prev : w));
+            apply(entries[0]?.contentRect.width ?? 0);
         });
         ro.observe(el);
-        return () => ro.disconnect();
+        // Viewport-resize fallback for surfaces where ResizeObserver is inert; container-only
+        // changes (e.g. a sidebar toggle) still come from the observer.
+        const onWinResize = () => { const cur = gridElRef.current; if (cur) apply(cur.clientWidth); };
+        window.addEventListener('resize', onWinResize);
+        return () => { ro.disconnect(); window.removeEventListener('resize', onWinResize); };
     }, []);
 
     const clampColSpan = useCallback((span: ColSpan): ColSpan => {
